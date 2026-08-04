@@ -85,28 +85,28 @@ We evaluate the framework on four diverse architectures with a real-world LoRa d
     \label{fig:system_arch}
 \end{figure}
 
-Fig.~\ref{fig:system_arch} illustrates the overall workflow of the proposed framework, which operates in three stages: model compression, device enrollment, and runtime authentication. The model compression stage applies two PCA-based techniques iteratively: PCA-driven channel pruning analyzes the teacher's convolutional feature maps to determine the effective channel count per layer, and PCA-aligned distillation trains the pruned student by projecting the teacher's embedding space into the student's lower-dimensional space. The trained student then becomes the teacher for the next iteration. This loop continues until the accuracy degradation exceeds a predefined threshold $\delta$. Section~III presents the algorithmic details.
+Fig.~\ref{fig:system_arch} illustrates the overall workflow of the proposed framework, which operates in three stages: model compression, device enrollment, and runtime authentication. Model compression runs offline and turns a high-capacity teacher network into a compact student network. Enrollment and authentication then run on the edge device, where the student first builds a template database for the authorized devices and afterwards verifies each incoming packet. The framework is organized around a single design principle: all expensive computation is confined to the offline stage, so that online verification costs no more than one forward pass of a small network. Section~III presents the algorithmic details.
 
 \subsection{Model Compression Pipeline}
 
-The compression pipeline consists of three modules that exploit PCA in complementary roles.
+The compression pipeline consists of three modules, each of which corresponds to one subsection of Section~III.
 \begin{itemize}
-    \item \textbf{Teacher Network Training} (Section~III-A) produces a high-capacity teacher that establishes a discriminative embedding space. The trained teacher serves two roles: its convolutional feature maps provide the input for PCA-driven channel analysis, and its embeddings serve as soft supervision targets for distillation.
-    \item \textbf{Single-Round Compression} (Section~III-B) combines PCA-driven channel pruning and PCA-aligned distillation into one compression cycle. Channel pruning analyzes feature variance to determine the student architecture, and distillation trains the randomly initialized student via embedding space alignment.
-    \item \textbf{Iterative Compression} (Section~III-C) extends the single-round procedure to a multi-round loop under an accuracy-bounded schedule. The student from round $r$ becomes the teacher for round $r+1$, enabling progressive compression until the accuracy floor $\delta$ is reached.
+    \item \textbf{Teacher Network Training} (Section~III-A) trains a high-capacity network that maps signals into a discriminative embedding space, where packets from the same device lie close together and packets from different devices lie far apart. The trained teacher is the only source of information for the rest of the pipeline. Its intermediate feature maps reveal how much redundancy each layer carries, and its embeddings act as supervision targets for the student.
+    \item \textbf{Single-Round Compression} (Section~III-B) converts the teacher into a compact student in one cycle, using PCA in two complementary roles. PCA-driven channel pruning measures the variance of the teacher feature maps to decide how many channels each student layer needs, which removes the need for hand-picked compression ratios. PCA-aligned distillation then trains the student, whose weights are randomly initialized rather than inherited, by projecting the teacher embeddings into the lower-dimensional student space so that supervision remains possible despite the mismatch in dimension. The output of this module is a trained compact student.
+    \item \textbf{Iterative Compression} (Section~III-C) is an optional extension that repeats the single-round procedure, treating the student of one round as the teacher of the next. Compression alters the feature statistics of a network, so a fresh analysis often exposes redundancy that the previous round could not see. The loop stops once the accuracy loss relative to the current teacher exceeds a preset tolerance, which lets the pipeline approach the compression limit without manual tuning.
 \end{itemize}
-This pipeline is executed once by a model provider with sufficient computational resources and does not impose real-time constraints.
+The pipeline is executed once by a model provider with sufficient computational resources and is therefore free of real-time constraints.
 
 \subsection{Device Enrollment and Authentication}
 
-After the compression pipeline completes, the resulting compact student network is deployed to edge devices for authentication. During enrollment, a small number of packets are collected from each authorized device under controlled conditions. The student network extracts embeddings from these packets, which are stored as reference templates in a local database. During authentication, each received packet is authenticated in real time: the student extracts its embedding and compares it against the enrolled templates via $k$-nearest neighbor (KNN) search with Euclidean distance. The packet is accepted if it matches a known device or rejected otherwise. Since all compression costs are paid during the model compression stage, runtime authentication requires only a single forward pass through the compact student, achieving the sub-millisecond latency required for per-packet verification on resource-constrained edge platforms.
+Once compression is complete, the compact student network is deployed to the edge device, which then operates in two phases. Enrollment is performed once per authorized device: a small number of packets is collected under controlled conditions, and the student converts them into embeddings that are stored as reference templates in a local database. Authentication is performed for every received packet. The student extracts the embedding of the packet and compares it against the stored templates by $k$-nearest neighbor (KNN) search under Euclidean distance. The packet is accepted if it matches an enrolled device and rejected otherwise. Because the architecture search and the training of the student are already finished offline, authentication involves only one forward pass of a small network followed by a distance comparison, which is what makes per-packet verification feasible on resource-constrained edge platforms.
 
 \section{PCA-Driven Pruning and Distillation}
 
-This section presents the complete compression pipeline. Section~III-A describes teacher network training. Section~III-B presents the single-round compression procedure, which combines PCA-driven channel pruning and PCA-aligned distillation. Section~III-C extends the framework to an iterative mode for progressive compression.
+This section describes the algorithms behind the three modules introduced in Section~II. Section~III-A trains the teacher network. Section~III-B presents the single-round compression procedure, which combines PCA-driven channel pruning and PCA-aligned distillation. Section~III-C extends the procedure to an iterative mode for progressive compression.
 
 \subsection{Teacher Network Training}
-The teacher network is trained first, as it serves as the sole source from which both the student architecture and supervision signals are derived. The teacher takes short-time Fourier transform (STFT) spectrograms as input and outputs an $\ell_2$-normalized embedding $\mathbf{z} \in \mathbb{R}^{d_t}$, where $d_t$ denotes the teacher embedding dimension. Training follows a metric learning paradigm. Each training sample is organized into a triplet $(\mathbf{x}_a, \mathbf{x}_p, \mathbf{x}_n)$, where the anchor $\mathbf{x}_a$ and positive $\mathbf{x}_p$ are from the same device, and the negative $\mathbf{x}_n$ is from a different device. The teacher is optimized with the triplet margin loss:
+The teacher is trained first because everything that follows is derived from it, namely the student architecture and the supervision signal used to train the student. The teacher takes short-time Fourier transform (STFT) spectrograms as input and outputs an $\ell_2$-normalized embedding $\mathbf{z} \in \mathbb{R}^{d_t}$, where $d_t$ is the teacher embedding dimension. Training follows a metric learning paradigm, so that identification can be performed by distance comparison rather than by a fixed classifier, which allows new devices to be enrolled without retraining. Each training sample is organized into a triplet $(\mathbf{x}_a, \mathbf{x}_p, \mathbf{x}_n)$, where the anchor $\mathbf{x}_a$ and the positive $\mathbf{x}_p$ come from the same device and the negative $\mathbf{x}_n$ comes from a different device. The teacher is optimized with the triplet margin loss:
 \begin{equation}
 \label{eq:triplet}
 \mathcal{L}_{\text{tri}} =
@@ -115,41 +115,42 @@ The teacher network is trained first, as it serves as the sole source from which
 \lVert \mathbf{z}_{a} - \mathbf{z}_{n} \rVert_2^2 + m
 \Bigr),
 \end{equation}
-where $m$ is a margin hyperparameter. This loss pulls same-device embeddings closer while pushing different-device embeddings apart, establishing a discriminative metric space. Model selection is performed via KNN accuracy on a validation set, and the best-performing checkpoint is retained. The trained teacher is then frozen and serves two roles: its convolutional feature maps are analyzed for channel pruning, and its embeddings provide soft targets for distillation.
+where $m$ is a margin hyperparameter. The loss pulls same-device embeddings together and pushes different-device embeddings apart, which yields the discriminative metric space that the student is later asked to reproduce. Model selection uses KNN accuracy on a validation set, and the best checkpoint is retained. The teacher is then frozen for the remainder of the pipeline, where it provides the feature maps used for channel pruning and the embeddings used as distillation targets.
 
 \subsection{Single-Round Compression}
 
-A single compression round consists of two stages executed sequentially. First, PCA-driven channel pruning analyzes the teacher's structural redundancy to determine the student architecture. Second, PCA-aligned distillation trains the randomly initialized student via embedding space alignment.
+One compression round has two sequential stages. PCA-driven channel pruning first inspects the frozen teacher and outputs a student architecture, i.e., a per-layer channel configuration. PCA-aligned distillation then takes that architecture and outputs a trained student. The two stages therefore answer two separate questions: how wide the student should be, and how its weights should be learned.
 
 \subsubsection{PCA-Driven Channel Pruning}
 
-The student architecture is constructed in two steps: per-layer PCA analysis quantifies redundancy, and the results are translated into a concrete network.
+This stage takes the frozen teacher as input and produces a student architecture, in two steps. The first step measures how much redundancy each layer carries, and the second step turns those measurements into a concrete network.
 
 \textbf{Step 1: Per-layer PCA analysis.}
-Shallow and deep layers in RFFI networks encode features at different abstraction levels and exhibit heterogeneous redundancy patterns, necessitating per-layer analysis. Given a trained teacher, we register forward hooks on all \texttt{Conv2d} layers and collect their output feature maps over the training set. For a layer with $C$ output channels producing $\mathbf{Y} \in \mathbb{R}^{B \times C \times H \times W}$, we reshape it into $\mathbb{R}^{(B\cdot H\cdot W) \times C}$, treating each spatial location as an independent observation in the channel space. PCA is applied to this matrix to obtain eigenvalues $\lambda_1 \ge \lambda_2 \ge \dots \ge \lambda_C$.
+The analysis is performed layer by layer because layers in an RFFI network describe the signal at different levels of abstraction and are therefore unlikely to be redundant to the same degree. Shallow layers encode low-level time-frequency texture, whereas deep layers encode abstract device-specific patterns. The redundancy of a layer is quantified by asking how many channels are actually needed to represent the variation that the layer produces. Given the frozen teacher, we register forward hooks on all convolutional layers and collect their output feature maps over the training set. For a layer with $C$ output channels producing $\mathbf{Y} \in \mathbb{R}^{B \times C \times H \times W}$, where $B$, $H$ and $W$ denote the batch size, height and width, we reshape $\mathbf{Y}$ into $\mathbb{R}^{(B\cdot H\cdot W) \times C}$, so that each spatial location becomes one observation in the $C$-dimensional channel space. PCA on this matrix gives the eigenvalues $\lambda_1 \ge \lambda_2 \ge \dots \ge \lambda_C$, each of which is the variance captured along one principal direction of the channel space.
 
-The cumulative explained variance ratio after retaining $k$ principal components is:
+The fraction of variance retained by the leading $k$ principal components is
 \begin{equation}
 \label{eq:cumsum}
 \text{cumsum}(k) = \frac{\sum_{i=1}^{k} \lambda_i}{\sum_{i=1}^{C} \lambda_i}.
 \end{equation}
 
-The effective dimension at variance threshold $\tau$ is defined as:
+Given a variance threshold $\tau$, the effective dimension of the layer is the smallest number of components that reaches this threshold,
 \begin{equation}
 \label{eq:eff_dim}
 d_{\text{eff}} = \argmin_k \left\{ \text{cumsum}(k) \geq \tau \right\}.
 \end{equation}
+A layer whose $d_{\text{eff}}$ is far below $C$ is producing outputs that essentially live in a low-dimensional subspace, and its width can be reduced accordingly. The threshold $\tau$ is the only knob of the whole analysis, and it has a direct interpretation as the fraction of feature variance the designer is willing to keep.
 
-Auxiliary convolutions, such as shortcut projections, downsampling layers, and depthwise separable convolutions, are excluded from this analysis because their channel counts are structurally coupled to adjacent main-branch layers rather than independently compressible.
+Not every convolution is analyzed. Auxiliary convolutions, such as shortcut projections, downsampling layers and depthwise separable convolutions, are excluded, because their channel counts are structurally tied to the neighboring main-branch layers and cannot be chosen independently without breaking the network topology.
 
 \textbf{Step 2: Student model construction.}
-The PCA-derived effective dimensions are used to construct the student architecture. Each main-branch convolutional layer's channel count is replaced by its $d_{\text{eff}}$, while the macro-topology, such as residual connections or dense blocks, is preserved. Auxiliary convolutions inherit their channel counts from the main-branch dimensions they connect to, ensuring structural consistency. A minimum channel count $c_{\min}$ is enforced to prevent degenerate layers, and the final embedding dimension is set to $d_s \ll d_t$. Critically, the student is constructed with random initialization; no weights are inherited from the teacher. All parameters are learned through the subsequent distillation stage.
+The measured effective dimensions are then turned into an architecture. The channel count of each main-branch convolutional layer is set to its own $d_{\text{eff}}$, while the macro-topology of the teacher, such as residual connections or dense blocks, is left unchanged, so that the student remains a narrower version of a known-good design rather than a new one. Auxiliary convolutions inherit their channel counts from the main-branch layers they connect to, which keeps the network structurally consistent. A minimum channel count $c_{\min}$ prevents a layer from collapsing to a degenerate width, and the student embedding dimension is set to $d_s \ll d_t$. The student is randomly initialized and inherits no weights from the teacher, so all of its parameters are learned in the distillation stage that follows.
 
 \subsubsection{PCA-Aligned Distillation}
 
-The dimensional mismatch between teacher and student embeddings, e.g., $\mathbf{z}_t \in \mathbb{R}^{512}$ versus $\mathbf{z}_s \in \mathbb{R}^{8}$, prevents direct distribution matching. We resolve this by learning a PCA projection that maps the teacher's high-dimensional space into the student's low-dimensional space.
+This stage takes the student architecture from Step 2 and trains its weights under the supervision of the frozen teacher. The obstacle is that the two networks no longer speak the same language: the teacher embedding lives in $\mathbb{R}^{d_t}$ and the student embedding in $\mathbb{R}^{d_s}$ with $d_s \ll d_t$, so the two outputs cannot be compared directly. Instead of adding a trainable adapter layer, we bring the teacher down to the student dimension with a PCA projection, which is obtained analytically from the teacher embeddings themselves and keeps the directions along which the teacher separates devices most strongly.
 
-Let $f_t(\cdot;\theta_t)$ denote the frozen teacher. We pass all training samples through $f_t$ to collect the teacher embedding matrix $\mathbf{Z}_{\text{teach}} \in \mathbb{R}^{N \times d_t}$, where $N$ is the number of training samples. PCA on this matrix yields a projection matrix $\mathbf{W} \in \mathbb{R}^{d_t \times d_s}$ formed by the top-$d_s$ eigenvectors and a mean vector $\boldsymbol{\mu} \in \mathbb{R}^{d_t}$. Each teacher embedding is projected and normalized as:
+Let $f_t(\cdot;\theta_t)$ denote the frozen teacher. All training samples are passed through $f_t$ to form the teacher embedding matrix $\mathbf{Z}_{\text{teach}} \in \mathbb{R}^{N \times d_t}$, where $N$ is the number of training samples. PCA on this matrix yields a mean vector $\boldsymbol{\mu} \in \mathbb{R}^{d_t}$ and a projection matrix $\mathbf{W} \in \mathbb{R}^{d_t \times d_s}$ whose columns are the $d_s$ leading eigenvectors. Each teacher embedding is then centered, projected and normalized as
 \begin{equation}
 \label{eq:proj}
 \hat{\mathbf{z}}_t =
@@ -157,9 +158,9 @@ Let $f_t(\cdot;\theta_t)$ denote the frozen teacher. We pass all training sample
 (\mathbf{z}_t - \boldsymbol{\mu}) \, \mathbf{W}
 \right),
 \end{equation}
-where $\operatorname{Norm}(\cdot)$ denotes $\ell_2$ normalization. Both teacher and student now operate in the shared $\mathbb{R}^{d_s}$ space, enabling direct KL divergence minimization.
+where $\operatorname{Norm}(\cdot)$ denotes $\ell_2$ normalization. Teacher and student now share the same $\mathbb{R}^{d_s}$ space, so their outputs can be compared directly.
 
-For each triplet $(\mathbf{x}_a, \mathbf{x}_p, \mathbf{x}_n)$, the student $f_s(\cdot;\theta_s)$ produces embeddings $(\mathbf{z}_{a,s}, \mathbf{z}_{p,s}, \mathbf{z}_{n,s}) \in \mathbb{R}^{d_s}$, and the frozen teacher produces $(\mathbf{z}_{a,t}, \mathbf{z}_{p,t}, \mathbf{z}_{n,t})$, which are projected to $(\hat{\mathbf{z}}_{a,t}, \hat{\mathbf{z}}_{p,t}, \hat{\mathbf{z}}_{n,t}) \in \mathbb{R}^{d_s}$ via~\eqref{eq:proj}. The student is trained by minimizing the temperature-scaled KL divergence between the projected teacher distribution and the student distribution:
+Training reuses the triplet sampling of Section~III-A. For each triplet $(\mathbf{x}_a, \mathbf{x}_p, \mathbf{x}_n)$, the student $f_s(\cdot;\theta_s)$ produces the embeddings $(\mathbf{z}_{a,s}, \mathbf{z}_{p,s}, \mathbf{z}_{n,s}) \in \mathbb{R}^{d_s}$, while the frozen teacher produces $(\mathbf{z}_{a,t}, \mathbf{z}_{p,t}, \mathbf{z}_{n,t})$, which~\eqref{eq:proj} maps to $(\hat{\mathbf{z}}_{a,t}, \hat{\mathbf{z}}_{p,t}, \hat{\mathbf{z}}_{n,t}) \in \mathbb{R}^{d_s}$. The student is trained by minimizing the temperature-scaled KL divergence between the projected teacher distribution and the student distribution,
 \begin{equation}
 \label{eq:kd}
 \mathcal{L}_{\text{KD}} =
@@ -170,20 +171,20 @@ T^2 \sum_{\mathbf{q} \in \{a,p,n\}}
 \operatorname{softmax}\!\left(\frac{\mathbf{z}_{\mathbf{q},s}}{T}\right)
 \right),
 \end{equation}
-where $T$ controls the softness of the target distribution. The loss is summed over anchor, positive, and negative positions to preserve the relational structure encoded by the teacher.
+where the temperature $T$ controls how soft the target distribution is. Summing the loss over the anchor, positive and negative positions makes the student reproduce not only where the teacher places an individual packet, but also how the teacher relates same-device and different-device packets to each other, which is the property that KNN authentication depends on.
 
 \subsection{Iterative Compression}
 
-A single compression round may not fully exploit the available redundancy. The feature statistics of the compressed student differ from those of the original teacher, and applying PCA to the student's own feature maps often reveals additional redundancy not exposed in the first round. We extend the framework to an iterative mode that repeats the single-round procedure until a predefined accuracy floor is reached, automatically discovering the compression frontier without manual tuning.
+One round does not necessarily exhaust the redundancy of a network. Pruning changes the feature statistics of every layer, so once the student of the first round is trained, running the same analysis on its own feature maps often reveals redundancy that was not visible in the teacher. This motivates an iterative mode that repeats the single-round procedure and lets the compression ratio grow until accuracy starts to suffer, rather than fixing the number of rounds in advance.
 
-Let $\theta_t^{(r)}$ denote the teacher at round $r$, with $\theta_t^{(1)}$ being the initially trained high-capacity network. Each round proceeds as follows:
+Let $\theta_t^{(r)}$ denote the teacher of round $r$, with $\theta_t^{(1)}$ being the initially trained high-capacity network. Each round proceeds as follows.
 \begin{enumerate}
-    \item Perform PCA-driven channel pruning on $\theta_t^{(r)}$ to obtain a new set of effective dimensions;
-    \item Instantiate a student with randomly initialized weights according to the new dimensions;
-    \item Train the student via PCA-aligned distillation from $\theta_t^{(r)}$ to obtain $\theta_s^{(r)}$;
-    \item Evaluate the accuracy degradation. If $\text{Acc}(\theta_t^{(r)}) - \text{Acc}(\theta_s^{(r)}) \le \delta$, set $\theta_t^{(r+1)} \leftarrow \theta_s^{(r)}$ and continue; otherwise terminate and return $\theta_s^{(r-1)}$.
+    \item Apply the per-layer PCA analysis of Section~III-B to $\theta_t^{(r)}$ to obtain a new set of effective dimensions;
+    \item Instantiate a randomly initialized student according to these dimensions;
+    \item Train the student by PCA-aligned distillation from $\theta_t^{(r)}$, which gives $\theta_s^{(r)}$;
+    \item Compare the two accuracies. If $\text{Acc}(\theta_t^{(r)}) - \text{Acc}(\theta_s^{(r)}) \le \delta$, accept the student, set $\theta_t^{(r+1)} \leftarrow \theta_s^{(r)}$ and start the next round; otherwise stop and return $\theta_s^{(r-1)}$.
 \end{enumerate}
-This iterative schedule enables cumulative compression ratios far exceeding single-round results, while the threshold $\delta$ ensures that accuracy remains within acceptable bounds.
+Because every round compresses a network that is already compressed, the cumulative compression ratio grows quickly, while the tolerance $\delta$ keeps the accuracy loss of each step within a bound chosen by the designer.
 
 
 \section{Experimental Evaluation}
