@@ -22,3 +22,11 @@
 *.iml
 workspace.xml
 tasks.xml
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.synctex.gz
