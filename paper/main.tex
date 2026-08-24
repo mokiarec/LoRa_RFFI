@@ -71,7 +71,7 @@ We evaluate the framework on four diverse architectures with a real-world LoRa d
 \begin{itemize}
     \item We propose a PCA-driven channel pruning method that analyzes the feature variance of each convolutional layer to automatically derive its effective dimension, eliminating hand-picked compression ratios. It achieves 14--834$\times$ parameter compression across four architectures with minimal accuracy loss, and the resulting students run in as little as 0.69~ms on an NVIDIA Jetson Nano.
 
-    \item We design a PCA-aligned distillation paradigm that projects the teacher's high-dimensional embedding space into the student's low-dimensional space, enabling effective knowledge transfer despite dimensional mismatch. The distilled student can outperform an undertrained teacher: the 834$\times$-compressed DenseNet student achieves higher accuracy than its teacher on 11 of 12 test scenarios.
+    \item We design a PCA-aligned network distillation paradigm that projects the teacher's high-dimensional embedding space into the student's low-dimensional space, enabling effective knowledge transfer despite dimensional mismatch. The distilled student can outperform an undertrained teacher: the 834$\times$-compressed DenseNet student achieves higher accuracy than its teacher on 11 of 12 test scenarios.
 
     \item We develop an iterative compression mode that progressively applies PCA-driven pruning and aligned distillation under a configurable accuracy bound. It reaches 67.2$\times$ cumulative compression on ResNet after two rounds, with accuracy improved after the first round.
 \end{itemize}
@@ -146,7 +146,7 @@ Not every convolution is analyzed. Auxiliary convolutions, such as shortcut proj
 \textbf{Step 2: Student model construction.}
 The measured effective dimensions are then turned into an architecture. The channel count of each main-branch convolutional layer is set to its own $d_{\text{eff}}$, while the macro-topology of the teacher, such as residual connections or dense blocks, is left unchanged, so that the student remains a narrower version of a known-good design rather than a new one. Auxiliary convolutions inherit their channel counts from the main-branch layers they connect to, which keeps the network structurally consistent. A minimum channel count $c_{\min}$ prevents a layer from collapsing to a degenerate width, and the student embedding dimension is set to $d_s \ll d_t$. The student is randomly initialized and inherits no weights from the teacher, so all of its parameters are learned in the distillation stage that follows.
 
-\subsubsection{PCA-Aligned Distillation}
+\subsubsection{PCA-Aligned Network Distillation}
 
 This stage takes the student architecture from Step 2 and trains its weights under the supervision of the frozen teacher. The obstacle is that the two networks no longer speak the same language: the teacher embedding lives in $\mathbb{R}^{d_t}$ and the student embedding in $\mathbb{R}^{d_s}$ with $d_s \ll d_t$, so the two outputs cannot be compared directly. Instead of adding a trainable adapter layer, we bring the teacher down to the student dimension with a PCA projection, which is obtained analytically from the teacher embeddings themselves and keeps the directions along which the teacher separates devices most strongly.
 
