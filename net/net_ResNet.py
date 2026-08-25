@@ -58,7 +58,7 @@ class ResNet_prune(nn.Module):
         self.layer4 = ResBlock(12, 16, first_layer=True)
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
         self.flatten = nn.Flatten()
-        self.fc = nn.Linear(16, 8)
+        self.fc = nn.Linear(16, 16)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))

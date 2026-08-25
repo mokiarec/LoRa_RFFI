@@ -44,7 +44,7 @@ Corresponding Author
 
 
 \begin{abstract}
-Radio frequency fingerprint identification (RFFI) is a physical-layer authentication technique that identifies wireless devices through hardware-inherent imperfections. Recent deep learning-based RFFI systems achieve high accuracy but cannot support real-time, per-packet inference on resource-constrained edge devices. Existing lightweight solutions rely on hand-crafted architectures or heuristic pruning, whose compression ratios follow human intuition rather than learned representations. This paper presents an automated lightweight RFFI pipeline that exploits principal component analysis (PCA) in two complementary roles. First, PCA-driven channel pruning analyzes feature maps to automatically determine each layer's effective dimension that preserves 95\% cumulative variance, eliminating hand-picked compression ratios. Second, PCA-aligned distillation projects the teacher's high-dimensional embedding space into the student's low-dimensional space, enabling effective knowledge transfer despite dimensional mismatch. The compact student is randomly initialized and trained via temperature-scaled KL divergence in the shared subspace. An optional iterative mode enables accuracy-bounded progressive compression. Experiments on four architectures with a real-world LoRa dataset demonstrate 14--834$\times$ parameter compression with minimal accuracy loss and sub-millisecond inference on NVIDIA Jetson platforms. The distilled student can even outperform an undertrained teacher.
+Radio frequency fingerprint identification (RFFI) is a physical-layer authentication technique that identifies wireless devices through hardware-inherent imperfections. Recent deep learning-based RFFI systems achieve high accuracy but cannot support real-time, per-packet inference on resource-constrained edge devices. Existing lightweight solutions rely on hand-crafted architectures or heuristic pruning, whose compression ratios follow human intuition rather than learned representations. This paper presents an automated lightweight RFFI pipeline that exploits principal component analysis (PCA) in two complementary roles. First, PCA-driven channel pruning analyzes feature maps to automatically determine each layer's effective dimension that preserves 95\% cumulative variance, eliminating hand-picked compression ratios. Second, PCA-aligned distillation projects the teacher's high-dimensional embedding space into the student's low-dimensional space, enabling effective knowledge transfer despite dimensional mismatch. The compact student is randomly initialized and trained via temperature-scaled KL divergence in the shared subspace. An optional iterative mode enables accuracy-bounded progressive compression. Experiments on four architectures with a real-world LoRa dataset demonstrate 23.9--834$\times$ parameter compression with minimal accuracy loss and millisecond-level inference on NVIDIA Jetson platforms. The distilled student can even outperform an undertrained teacher.
 \end{abstract}
 
 
@@ -67,9 +67,9 @@ General-purpose lightweight neural network design has been extensively studied. 
 \textbf{Our approach.}
 A key observation underpins this work: a fully trained high-capacity network inherently encodes its own architectural redundancy. The channel-wise energy spectrum obtained by principal component analysis (PCA) on feature maps analytically reveals the exact dimension required to retain the dominant representation variance at each layer. We propose an automated lightweight RFFI framework that exploits PCA in two complementary roles. First, PCA-driven channel pruning automatically determines per-layer compression ratios from feature variance. Second, PCA-aligned distillation bridges the dimensional gap between teacher and student embedding spaces by projecting the teacher's high-dimensional embeddings into the student's low-dimensional space. An optional iterative mode repeats this pipeline under a configurable accuracy floor, enabling progressive compression without manual tuning.
 
-We evaluate the framework on four diverse architectures with a real-world LoRa dataset and demonstrate sub-millisecond inference on NVIDIA Jetson edge platforms. The main contributions are:
+We evaluate the framework on four diverse architectures with a real-world LoRa dataset and demonstrate millisecond-level end-to-end inference on NVIDIA Jetson edge platforms. The main contributions are:
 \begin{itemize}
-    \item We propose a PCA-driven channel pruning method that analyzes the feature variance of each convolutional layer to automatically derive its effective dimension, eliminating hand-picked compression ratios. It achieves 14--834$\times$ parameter compression across four architectures with minimal accuracy loss, and the resulting students run in as little as 0.69~ms on an NVIDIA Jetson Nano.
+    \item We propose a PCA-driven channel pruning method that analyzes the feature variance of each convolutional layer to automatically derive its effective dimension, eliminating hand-picked compression ratios. It achieves 23.9--834$\times$ parameter compression across four architectures with minimal accuracy loss, and the resulting students complete feature extraction in as little as 0.69~ms on an NVIDIA Jetson Nano.
 
     \item We design a PCA-aligned network distillation paradigm that projects the teacher's high-dimensional embedding space into the student's low-dimensional space, enabling effective knowledge transfer despite dimensional mismatch. The distilled student can outperform an undertrained teacher: the 834$\times$-compressed DenseNet student achieves higher accuracy than its teacher on 11 of 12 test scenarios.
 
@@ -216,71 +216,59 @@ Evaluation uses KNN ($k = 5$) on L2-normalized embeddings with a 50/50 enrollmen
 \subsubsection{Teacher Model Selection and Validation Dynamics}
 At the end of each training epoch, the model is evaluated on a randomly sampled 10\% subset of the validation set using KNN on L2-normalized embeddings. The checkpoint with the highest validation accuracy is selected as the teacher, frozen, and used as the supervisor for all subsequent distillation stages.
 
-\begin{figure}[t]
+\begin{figure}[!t]
     \centering
-    \includegraphics[width=0.95\linewidth]{figures/pca_comparison_four_networks.pdf}
-    \caption{Per-layer PCA channel analysis on the trained ResNet18 under two variance thresholds ($\tau = 0.95$ and $\tau = 0.99$).}
-    \label{fig:pca_analysis}
+    \includegraphics[width=\linewidth]{figures/pruning_distillation_comparison.pdf}
+    \caption{Accuracy comparison among the unpruned teacher, PCA-pruned student with distillation, and PCA-pruned student without distillation.}
+    \label{fig:pruning_distillation_comparison}
 \end{figure}
-
-\subsection{Per-Layer PCA Analysis and Structural Redundancy}
-\label{subsec:pca_analysis_visualization}
-
-Prior to evaluating the global compression performance, we perform a granular analysis on the layer-wise energy spectra of the trained teacher networks to verify the existence of structural redundancy. Fig.~\ref{fig:pca_analysis} illustrates the analysis results for the representative ResNet18 architecture under two distinct energy preservation thresholds, namely $\tau = 0.95$ and $\tau = 0.99$.
-
-The figure reveals strong layer-wise heterogeneity in redundancy profiles. Shallow layers, such as the initial convolutional layer, retain relatively high channel counts even after PCA-driven pruning, as they encode low-level time-frequency features that require more diverse representations. In contrast, deeper layers exhibit higher redundancy: their feature maps concentrate energy in a smaller subspace, allowing aggressive compression without sacrificing representational power. For example, under $\tau = 0.95$, the first layer retains 10 channels while a mid-depth layer compresses down to 4 channels, demonstrating that uniform compression ratios would either under-compress shallow layers or over-compress deep layers.
-
-The choice of threshold $\tau$ directly controls the compression-accuracy tradeoff. At $\tau = 0.95$, the effective dimensions are smaller, yielding a more compact student at the cost of discarding 5\% of feature variance. At $\tau = 0.99$, more channels are retained to preserve 99\% of the variance, resulting in a larger but potentially more accurate model. This threshold provides a tunable knob for practitioners to balance model size against performance requirements. The subsequent experiments adopt $\tau = 0.95$ as the default setting, as it consistently achieves strong compression with minimal accuracy degradation across all tested architectures. 
-
 
 \subsection{Distillation Across Different Network Families}
 
-\begin{table*}[!t]
-\caption{Comprehensive performance analysis: Complexity, Accuracy across Sub-scenarios, and Hardware Throughput.}
+\begin{table}
+\caption{Complexity and Hardware Throughput.}
 \label{tab:final_merged_complete}
 \centering
-\scriptsize 
-\setlength{\tabcolsep}{2.8pt} % 保持紧凑的 23 列布局
-\begin{tabular}{l|c|c|c|c|ccc|ccc|cc|cc|cc|ccc|ccc}
+\scriptsize
+\setlength{\tabcolsep}{2.0pt}
+\begin{tabular}{l|c|c|c|c|cc|cc}
 \toprule
-\multirow{3}{*}{\textbf{Model}} & \multirow{3}{*}{\textbf{Type}} & \multirow{3}{*}{\textbf{Size}} & \multirow{3}{*}{\textbf{Params}} & \multirow{3}{*}{\textbf{FLOPs}} & \multicolumn{12}{c|}{\textbf{Accuracy (\%) Across Scenarios \& Sub-scenarios}} & \multicolumn{3}{c|}{\textbf{Jetson Nano}} & \multicolumn{3}{c}{\textbf{RTX 4090}} \\
-\cmidrule(lr){6-17} \cmidrule(lr){18-20} \cmidrule(lr){21-23}
-& & & & & \multicolumn{3}{c|}{\textbf{LOS}} & \multicolumn{3}{c|}{\textbf{NLOS}} & \multicolumn{2}{c|}{\textbf{Walk}} & \multicolumn{2}{c|}{\textbf{Mobile}} & \multicolumn{2}{c|}{\textbf{Antenna}} & \textbf{Feat.} & \textbf{Total} & \textbf{FPS} & \textbf{Feat.} & \textbf{Total} & \textbf{FPS} \\
-\cmidrule(lr){6-8} \cmidrule(lr){9-11} \cmidrule(lr){12-13} \cmidrule(lr){14-15} \cmidrule(lr){16-17} \cmidrule(lr){18-20} \cmidrule(lr){21-23}
-& & & & & \textbf{A} & \textbf{B} & \textbf{C} & \textbf{D} & \textbf{E} & \textbf{F} & \textbf{B} & \textbf{F} & \textbf{Off.} & \textbf{Meet.} & \textbf{B} & \textbf{F} & \textbf{ms} & \textbf{ms} & \textbf{1/s} & \textbf{$\mu$s} & \textbf{$\mu$s} & \textbf{1/s} \\
+\multirow{3}{*}{\textbf{Model}} & \multirow{3}{*}{\textbf{Type}} & \multirow{3}{*}{\textbf{Size}} & \multirow{3}{*}{\textbf{Params}} & \multirow{3}{*}{\textbf{FLOPs}} & \multicolumn{2}{c|}{\textbf{Jetson Nano}} & \multicolumn{2}{c}{\textbf{RTX 4090}} \\
+\cmidrule(lr){6-7} \cmidrule(lr){8-9}
+& & & & & \textbf{Feat.} & \textbf{Total} & \textbf{Feat.} & \textbf{Total} \\
+& & & & & \textbf{(ms)} & \textbf{(ms)} & \textbf{($\mu$s)} & \textbf{($\mu$s)} \\
 \midrule
-\multirow{2}{*}{ResNet18} & Teacher & 802.32 KB & 203.26K & 268.12M & 99.7 & 98.5 & \textbf{99.8} & \textbf{100} & 62.5 & 98.5 & 92.6 & 98.9 & \textbf{86.4} & \textbf{88.8} & \textbf{99.2} & \textbf{90.2} & 4.45 & 33.36 & \fpeval{round(1000/(33.36),0)}  
-& 94.3 & 166.0 & \fpeval{round(1000/(166.0),0)}K \\
-& Student & 43.28 KB & 8.50K & 13.04M & \textbf{99.8} & \textbf{99.4} & 96.4 & 99.4 & \textbf{84.6} & \textbf{99.7} & \textbf{99.9} & \textbf{99.4} & 85.0 & 88.3 & 95.8 & 75.0 & 1.19 & 1.60 & \fpeval{round(1000/(1.60),0)} & 19.9 & 63.1 & \fpeval{round(1000/(63.1),0)}K \\
+\multirow{2}{*}{ResNet18} & T & 802.32 KB & 203.26K & 268.12M & 4.45 & 33.36 & 94.3 & 166.0 \\
+& S & 43.28 KB & 8.50K & 13.04M & 1.19 & 1.60 & 19.9 & 63.1 \\
 \midrule
-\multirow{2}{*}{SCSKNet} & Teacher & 837.76 KB & 210.67K & 268.38M & \textbf{97.5} & \textbf{91.1} & \textbf{99.8} & \textbf{97.2} & \textbf{86.7} & \textbf{99.9} & \textbf{99.4} & \textbf{99.6} & \textbf{83.8} & 92.2 & \textbf{99.1} & 89.5 & 4.77 & 24.66 & \fpeval{round(1000/(24.66),0)} & 97.1 & 165.3 & \fpeval{round(1000/(165.3),0)}K \\
-& Student & 33.51 KB & 4.95K & 7.25M & 95.3 & 88.2 & 99.1 & \textbf{97.2} & 79.7 & \textbf{99.9} & 93.4 & \textbf{99.6} & 80.8 & \textbf{95.0} & 97.6 & \textbf{91.3} & 0.89 & 1.31 & \fpeval{round(1000/(1.31),0)} & 16.7 & 58.6 & \fpeval{round(1000/(58.6),0)}K \\
+\multirow{2}{*}{SCSKNet} & T & 837.76 KB & 210.67K & 268.38M & 4.77 & 24.66 & 97.1 & 165.3 \\
+& S & 33.51 KB & 4.95K & 7.25M & 0.89 & 1.31 & 16.7 & 58.6 \\
 \midrule
-\multirow{2}{*}{ShuffleNet} & Teacher & 7124.85 KB & 1777.97K & 21.89M & 92.3 & 82.4 & 89.8 & 91.8 & 52.3 & \textbf{98.1} & 86.4 & \textbf{96.0} & 74.2 & \textbf{92.6} & 79.2 & \textbf{84.4} & 9.99 & 29.31 & \fpeval{round(1000/(29.31),0)} & 242.6 & 313.3 & \fpeval{round(1000/(313.3),0)}K \\
-& Student & 294.85 KB & 42.74K & 1.19M & \textbf{95.8} & \textbf{93.1} & \textbf{89.9} & \textbf{92.7} & \textbf{68.1} & 96.3 & \textbf{94.8} & 93.8 & \textbf{79.0} & 88.2 & \textbf{88.9} & 83.6 & 0.77 & 1.08 & \fpeval{round(1000/(1.08),0)} & 42.3 & 84.6 & \fpeval{round(1000/(84.6),0)}K \\
+\multirow{2}{*}{ShuffleNet} & T & 7124.85 KB & 1777.97K & 21.89M & 9.99 & 29.31 & 242.6 & 313.3 \\
+& S & 294.85 KB & 42.74K & 1.19M & 0.77 & 1.08 & 42.3 & 84.6 \\
 \midrule
-\multirow{2}{*}{DenseNet} & Teacher & 29768.69 KB & 7472.38K & 366.07M & 89.8 & 77.6 & 89.3 & 90.2 & 51.2 & 98.6 & 82.2 & 93.6 & 83.2 & 93.2 & 89.3 & \textbf{89.8} & 1.82 & 19.30 & \fpeval{round(1000/(19.30),0)} & 54.8 & 121.5 & \fpeval{round(1000/(121.5),0)}K \\
-& Student & 144.51 KB & 8.96K & 1.60M & \textbf{90.0} & \textbf{78.6} & \textbf{89.6} & \textbf{92.2} & \textbf{60.4} & \textbf{99.7} & \textbf{84.4} & \textbf{96.0} & \textbf{85.6} & \textbf{98.5} & \textbf{89.8} & 88.2 & 0.69 & 1.01 & \fpeval{round(1000/(1.01),0)} & 49.7 & 92.4 & \fpeval{round(1000/(92.4),0)}K \\
+\multirow{2}{*}{DenseNet} & T & 29768.69 KB & 7472.38K & 366.07M & 1.82 & 19.30 & 54.8 & 121.5 \\
+& S & 144.51 KB & 8.96K & 1.60M & 0.69 & 1.01 & 49.7 & 92.4 \\
 \bottomrule
 \end{tabular}
 
 \begin{tablenotes}
 \footnotesize
-\item[*] Note: 'Off.' and 'Meet.' denote Office and Meeting settings. 'Feat.' represents the backbone feature extraction time, and 'Total' denotes the end-to-end latency including template matching classification.
+\item[*] Abbreviations: T = Teacher, S = Student. 'Feat.' denotes backbone feature extraction time; 'Total' denotes end-to-end latency including template matching classification.
 \end{tablenotes}
-\end{table*}
+\end{table}
 
-Table~\ref{tab:final_merged_complete} reports the comprehensive evaluation of the proposed pipeline across four diverse network architectures.
+Table~\ref{tab:final_merged_complete} reports the complexity and inference latency of the four teacher--student pairs, and Fig.~\ref{fig:pruning_distillation_comparison} compares their identification accuracy across the 12 test sub-scenarios.
 
 The ResNet18 teacher--student pair represents the canonical case where the teacher is well-trained.
 The student reduces the parameter count from 203.26K to 8.50K (23.9$\times$ compression) and FLOPs from 268.12M to 13.04M (20.6$\times$ reduction), while maintaining competitive accuracy across all scenarios.
-On LOS channels A and C, the student achieves 99.8\% and 96.4\% respectively, closely tracking the teacher's 99.7\% and 99.8\%.
+On LOS channels A and C (Fig.~\ref{fig:pruning_distillation_comparison}a), the student achieves 99.8\% and 96.4\% respectively, closely tracking the teacher's 99.7\% and 99.8\%.
 Notably, the student surpasses the teacher on the NLOS E channel (84.6\% vs.\ 62.5\%) and on Walk B (99.9\% vs.\ 92.6\%), suggesting that the PCA-derived compact architecture is less prone to overfitting under channel degradation.
 The student model occupies only 43.28~KB of storage, making it suitable for deployment on the most memory-constrained edge devices.
 
-The remaining three architectures reveal a consistently recurring phenomenon: the distilled student outperforms its own teacher across a majority of test scenarios, often by substantial margins, despite operating at a fraction of the parameter budget.
-The SCSKNet student reduces parameters by 42.6$\times$ (210.67K to 4.95K) yet achieves higher accuracy on the NLOS F channel (99.9\% tie) and on Mobile Meeting (95.0\% vs.\ 92.2\%).
-The ShuffleNet student, at 42.74K parameters (41.6$\times$ compression), exceeds the teacher on 8 of the 12 evaluated scenarios, with the most pronounced gains on LOS B (93.1\% vs.\ 82.4\%, $+$10.7\%) and Walk B (94.8\% vs.\ 86.4\%, $+$8.4\%).
+The remaining three architectures reveal a recurring phenomenon: although the distilled students operate at a fraction of the parameter budget, they remain competitive with their teachers, and two of the three students outperform their teachers on a majority of the test scenarios.
+The SCSKNet student reduces parameters by 42.6$\times$ (210.67K to 4.95K) and stays within 3 percentage points of the teacher on 10 of the 12 scenarios, matching it on NLOS F (99.9\%) and achieving higher accuracy on Mobile Meeting (95.0\% vs.\ 92.2\%).
+The ShuffleNet student, at 42.74K parameters (41.6$\times$ compression), exceeds the teacher on 8 of the 12 evaluated scenarios, with the most pronounced gains on NLOS E (68.1\% vs.\ 52.3\%, $+$15.8\%) and LOS B (93.1\% vs.\ 82.4\%, $+$10.7\%).
 The DenseNet student achieves the most dramatic compression---from 7,472.38K to 8.96K parameters (834$\times$) and from 366.07M to 1.60M FLOPs (228.8$\times$)---while outperforming the teacher on 11 of the 12 scenarios, including NLOS D (92.2\% vs.\ 90.2\%) and Mobile Meeting (98.5\% vs.\ 93.2\%).
 
 The observed better performance of the student over its teacher stems from a dual purification mechanism. First, although the teacher networks—trained under severe SNR augmentations or early termination—exhibit non-trivial manifest noise under direct KNN evaluation, they still encode underlying structural inter-device similarities. Second, the PCA projection onto the $d_s$-dimensional subspace acts as an analytical filter, systematically discarding perturbation-dominated dimensions while isolating the dominant variance directions. By optimizing against these structurally filtered soft labels, the student network successfully bypasses the teacher's original empirical noise, yielding a more robust and purified representation.
@@ -323,10 +311,10 @@ Round 3 & [5, 6, 3, 2, 2]       & 1,364   & 96.00 & 92.70  & 96.85 \\
 \subsection{Inference Latency on Edge Platforms}
 
 To evaluate the real-time capability of the PCA-derived student networks, we measure inference latency, decomposing end-to-end latency into feature extraction and classification.
-Results are reported in the rightmost columns of Table~\ref{tab:final_merged_complete}.
+Table~\ref{tab:final_merged_complete} reports both quantities for every teacher and student network on the two platforms.
 
 On the Jetson Nano, the ResNet18 teacher backbone requires 4.45~ms for feature extraction and 33.36~ms end-to-end (30~FPS), making it unsuitable for real-time per-packet authentication.
-In contrast, all student backbones complete feature extraction in under 1.2~ms, with end-to-end latency ranging from 0.69~ms (DenseNet) to 1.60~ms (ResNet18), corresponding to 625--990~FPS on the same constrained hardware---a throughput that exceeds typical LoRa packet rates by a wide margin.
+In contrast, all student backbones complete feature extraction in under 1.2~ms, with end-to-end latency ranging from 1.01~ms (DenseNet) to 1.60~ms (ResNet18), corresponding to 625--990~FPS on the same constrained hardware---a throughput that exceeds typical LoRa packet rates by a wide margin.
 
 On the RTX~4090, the student backbones execute feature extraction within 16.7--49.7~$\mu$s per inference.
 With PCA-accelerated classification, end-to-end throughput reaches 10,800--17,000~FPS across all student networks.
@@ -337,9 +325,9 @@ These results confirm that the proposed automated pipeline produces models that 
 \label{sec:conclusion}
 This paper presents an automated lightweight RFFI pipeline that integrates PCA-driven channel analysis, structural pruning with random reinitialization, and self-distillation via PCA-aligned KL divergence.
 By deriving per-layer channel budgets from the PCA energy spectrum of trained networks, the pipeline eliminates manual architecture design and replaces heuristic width multipliers with a data-driven criterion.
-Self-distillation enables randomly-initialized compact networks to recover teacher-level discriminability, and we demonstrate that distillation additionally serves as a representation purification mechanism: students of undertrained teachers consistently outperform their teachers.
+Self-distillation enables randomly-initialized compact networks to recover teacher-level discriminability, and we demonstrate that distillation additionally serves as a representation purification mechanism: students of undertrained teachers frequently outperform their teachers.
 An iterative extension provides accuracy-bounded progressive compression, automatically pushing the model toward the practical channel-level compression limit.
-Experiments across four diverse architectures on a real-world LoRa dataset demonstrate 14--834$\times$ parameter compression with minimal accuracy degradation, and edge deployment on an NVIDIA Jetson Nano achieves over 600~FPS inference throughput.
+Experiments across four diverse architectures on a real-world LoRa dataset demonstrate 23.9--834$\times$ parameter compression with minimal accuracy degradation, and edge deployment on an NVIDIA Jetson Nano achieves over 600~FPS inference throughput.
 This work provides a practical, fully automated path toward deploying secure, low-latency RFFI systems on resource-constrained edge platforms without sacrificing performance.
 
 

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
-paper/plot_feature_visualization.py
+paper/scripts/plot_feature_visualization.py
 
 Feature visualization across iterative distillation rounds on ResNet.
-4 subplots left → right: Original → Student R1 → Student R2 → Student R3
+2×2 subplots: Teacher → Student R1 → Student R2 → Student R3
 Each subplot shows t-SNE projection of the embedding space, colored by device label.
+
+IEEE single-column figure: authored at final print size (3.5 in wide),
+Times-compatible serif, 7–8 pt text so it renders at true size in the paper.
 
 Output: paper/figures/feature_visualization.pdf
 """
@@ -19,7 +22,7 @@ from matplotlib import pyplot as plt
 from sklearn.manifold import TSNE
 
 # ── Path setup ─────────────────────────────────────────────────────────
-_parent = Path(__file__).parent.parent
+_parent = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_parent))
 
 from core.config import PreprocessType, DEVICE
@@ -34,11 +37,10 @@ RUNS_ITER = PIPELINE_DIR / "runs_iterative" / "run_004_ResNet_iterative"
 
 # 4 models to visualize
 MODEL_PATHS = [
-    (RUNS_ITER / "iteration_01" / "pruned" / "weights" / "Extractor_best.pth", True,  "Teacher"),           # Teacher
-    (RUNS_ITER / "iteration_02" / "pruned" / "weights" / "Extractor_best.pth", True,  "Student\nRound 1"),  # student R1
-    (RUNS_ITER / "iteration_03" / "pruned" / "weights" / "Extractor_best.pth", True,  "Student\nRound 2"),  # student R2
-    (RUNS_ITER / "iteration_04" / "pruned" / "weights" / "Extractor_best.pth", True, "Student\nRound 3"),  # student R3
-
+    (RUNS_ITER / "iteration_01" / "pruned" / "weights" / "Extractor_best.pth", True, "Teacher"),      # teacher
+    (RUNS_ITER / "iteration_02" / "pruned" / "weights" / "Extractor_best.pth", True, "Student R1"),   # student round 1
+    (RUNS_ITER / "iteration_03" / "pruned" / "weights" / "Extractor_best.pth", True, "Student R2"),   # student round 2
+    (RUNS_ITER / "iteration_04" / "pruned" / "weights" / "Extractor_best.pth", True, "Student R3"),   # student round 3
 ]
 
 # ── Output ─────────────────────────────────────────────────────────────
@@ -166,64 +168,58 @@ def main():
         emb_2d = tsne.fit_transform(emb)
         tsne_results.append(emb_2d)
 
-    # ── Plot ───────────────────────────────────────────────────────
-    plt.rcParams["font.family"] = "serif"
-    plt.rcParams["font.serif"] = ["Times New Roman", "Liberation Serif", "DejaVu Serif"]
+    # ── Plot (IEEE single-column, authored at final size) ─────────
     plt.rcParams.update({
-        "font.size": 9, "axes.labelsize": 10, "axes.titlesize": 11,
-        "legend.fontsize": 6, "xtick.labelsize": 7, "ytick.labelsize": 7,
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "Liberation Serif", "DejaVu Serif"],
+        "mathtext.fontset": "stix",
+        "pdf.fonttype": 42,          # embed TrueType (IEEE PDF eXpress friendly)
+        "font.size": 7,
+        "axes.labelsize": 7,
+        "xtick.labelsize": 6,
+        "ytick.labelsize": 6,
     })
 
-    fig, axes = plt.subplots(1, 4, figsize=(14, 3.8))
+    fig, axes = plt.subplots(2, 2, figsize=(4, 2),
+                             constrained_layout=True)
+    axes = axes.ravel()
 
-    # IEEE-style high-contrast colors: Set1 (9) + Dark2 (8) + Set2 (8) for up to 25
-    from matplotlib import colormaps as cm
-    cmap1 = plt.get_cmap("Set1", 9)
-    cmap2 = plt.get_cmap("Dark2", 8)
-    cmap3 = plt.get_cmap("Set2", 8)
-    colors = [cmap1(j) for j in range(9)] + [cmap2(j) for j in range(8)] + [cmap3(j) for j in range(8)]
-    color_map = {d: colors[i % len(colors)] for i, d in enumerate(unique_devs)}
+    # Device identity is an ordered index (0..N-1): sample one high-variation
+    # colormap evenly instead of cycling 30 ad-hoc hues; a colorbar replaces
+    # the per-device legend (30 entries would be unreadable at this size).
+    from matplotlib.colors import ListedColormap, BoundaryNorm
+    cmap = plt.get_cmap("turbo", len(unique_devs))
+    disc_cmap = ListedColormap([cmap(i) for i in range(len(unique_devs))])
+    norm = BoundaryNorm(np.arange(-0.5, len(unique_devs) + 0.5, 1.0), disc_cmap.N)
+    dev_to_idx = {d: i for i, d in enumerate(unique_devs)}
+    sample_idx = np.array([dev_to_idx[d] for d in np.ravel(labels_subset)])
 
-    for ax_idx, (ax, emb_2d, lbl) in enumerate(zip(axes, tsne_results, model_labels)):
-        for dev in unique_devs:
-            mask = (labels_subset == dev).ravel()  # ensure 1D
-            ax.scatter(emb_2d[mask, 0], emb_2d[mask, 1],
-                       c=[color_map[dev]], s=18, alpha=0.85,
-                       edgecolors="none", label=f"Dev {dev}")
-
-        ax.set_title(lbl, fontsize=11, fontweight="bold", pad=6)
-        ax.set_xlabel("t-SNE 1", fontsize=9)
-        if ax_idx == 0:
-            ax.set_ylabel("t-SNE 2", fontsize=9)
-        ax.set_xticks([])
+    for i, (ax, emb_2d, lbl) in enumerate(zip(axes, tsne_results, model_labels)):
+        sc = ax.scatter(emb_2d[:, 0], emb_2d[:, 1], c=sample_idx,
+                        cmap=disc_cmap, norm=norm, s=2, alpha=0.9,
+                        linewidths=0)
+        ax.set_title(f"({chr(97 + i)}) {lbl}", fontsize=7.5, pad=2.5)
+        ax.set_xticks([])          # t-SNE axes carry no meaningful scale
         ax.set_yticks([])
-        ax.grid(False)
-        # IEEE-style: bold frame
         for spine in ax.spines.values():
-            spine.set_linewidth(1.2)
-            spine.set_color("black")
+            spine.set_linewidth(0.6)
+        if i >= 2:
+            ax.set_xlabel("t-SNE 1")
+        if i % 2 == 0:
+            ax.set_ylabel("t-SNE 2")
 
+    for ax in axes[len(tsne_results):]:   # hide panels if a model was missing
+        ax.set_visible(False)
 
+    tick_pos = np.arange(0, len(unique_devs), 5)
+    cbar = fig.colorbar(sc, ax=list(axes), shrink=0.85, pad=0.03,
+                        ticks=tick_pos, aspect=28)
+    cbar.set_label("Device index", fontsize=7)
+    cbar.ax.set_yticklabels([str(unique_devs[p]) for p in tick_pos])
+    cbar.ax.tick_params(labelsize=6, width=0.6, length=2)
+    cbar.outline.set_linewidth(0.6)
 
-    # ── Shared legend (top of figure) ──────────────────────────────
-    legend_handles = []
-    # Show a subset of devices in legend
-    legend_step = max(1, len(unique_devs) // 12)
-    for i, dev in enumerate(unique_devs):
-        if i % legend_step == 0:
-            legend_handles.append(
-                plt.Line2D([0], [0], marker="o", color="w",
-                           markerfacecolor=color_map[dev], markersize=8,
-                           label=f"Dev {dev}")
-            )
-    fig.legend(handles=legend_handles, loc="lower center",
-               ncol=min(15, len(legend_handles)),
-               fontsize=10, framealpha=0.9, edgecolor="#cccccc",
-               markerscale=2.0, mode="expand", columnspacing=0.6,
-               bbox_to_anchor=(0, 1.02, 1, 0), handletextpad=0.4)
-
-    plt.tight_layout(rect=[0, 0, 1, 0.88])
-    plt.savefig(str(OUTPUT), dpi=300, bbox_inches="tight")
+    fig.savefig(str(OUTPUT))
     print(f"\nSaved: {OUTPUT}")
     plt.close()
 

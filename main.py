@@ -1,6 +1,7 @@
 """项目主入口文件"""
 import os
 import numpy as np
+from sympy import true
 
 from core.config import set_seed, Config, Mode, DEVICE, PreprocessType
 from core.controller import main
@@ -17,6 +18,7 @@ if __name__ == "__main__":
     # ==================== 配置选择开关 ====================
     # 修改此变量来选择不同的实验配置
     EXP_SELECT = 5
+    # 无需更改，改动在下方
     EXP_resume = False
     EXP_id = None
 
@@ -25,7 +27,7 @@ if __name__ == "__main__":
         # --- 示例 1: 训练基础模型 (EXP_01) ---
         config = Config(
             mode=Mode.TRAIN,
-            net_type=NetworkType.GoogleNet,
+            net_type=NetworkType.DenseNet_prune,
             preprocess_type=PreprocessType.STFT,
             learning_rate=1e-4,
             batch_size=32,
@@ -69,10 +71,10 @@ if __name__ == "__main__":
         # --- 示例 5: 多分类实验 (EXP_01) ---
         config = Config.from_json(
             mode=Mode.MULTI_CLASSIFICATION,
-            model_dir="./checkpoints/EXP_02_ResNet_Base"
+            model_dir="./checkpoints/EXP_30_DenseNet_prune_Base"
         )
-        EXP_resume = False
-        # EXP_id = "1vo3u147zot8ybi05bd2u"
+        EXP_resume = True
+        EXP_id = "nw0kftno"
 
     elif EXP_SELECT == 6:
         # --- 示例 6: 分类实验 (EXP_01) ---
