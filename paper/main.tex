@@ -1,7 +1,7 @@
-\documentclass[10pt, conference]{IEEEtran}
-\IEEEoverridecommandlockouts
+\documentclass[journal,comsoc]{IEEEtran}
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
+\usepackage[cmintegrals]{newtxmath}
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
@@ -23,28 +23,23 @@
 
 \title{Lightweight RF Fingerprinting via PCA-Driven Channel Pruning and Self-Distillation}
 
-\author{
-\IEEEauthorblockN{
-Keyi~Mo\IEEEauthorrefmark{1},
-Guanxiong~Shen\IEEEauthorrefmark{1}\IEEEauthorrefmark{2}
-}
-
-\IEEEauthorblockA{
-\IEEEauthorrefmark{1}
-School of Cyber Science and Engineering, Southeast University, Nanjing, China
-}
-\IEEEauthorblockA{
-\IEEEauthorrefmark{2}
-Corresponding Author
-}
-
+\author{Keyi~Mo and Guanxiong~Shen%
+\thanks{K. Mo and G. Shen are with the School of Cyber Science and Engineering, Southeast University, Nanjing 210096, China.}%
+\thanks{Corresponding author: G. Shen (e-mail: gxshen@seu.edu.cn).}%
 }
 
 \maketitle
 
 
 \begin{abstract}
-Radio frequency fingerprint identification (RFFI) is a physical-layer authentication technique that identifies wireless devices through hardware-inherent imperfections. Recent deep learning-based RFFI systems achieve high accuracy but cannot support real-time, per-packet inference on resource-constrained edge devices. Existing lightweight solutions rely on hand-crafted architectures or heuristic pruning, whose compression ratios follow human intuition rather than learned representations. This paper presents an automated lightweight RFFI pipeline that exploits principal component analysis (PCA) in two complementary roles. First, PCA-driven channel pruning analyzes feature maps to automatically determine each layer's effective dimension that preserves 95\% cumulative variance, eliminating hand-picked compression ratios. Second, PCA-aligned distillation projects the teacher's high-dimensional embedding space into the student's low-dimensional space, enabling effective knowledge transfer despite dimensional mismatch. The compact student is randomly initialized and trained via temperature-scaled KL divergence in the shared subspace. An optional iterative mode enables accuracy-bounded progressive compression. Experiments on four architectures with a real-world LoRa dataset demonstrate 23.9--834$\times$ parameter compression with minimal accuracy loss and millisecond-level inference on NVIDIA Jetson platforms. The distilled student can even outperform an undertrained teacher.
+Radio frequency fingerprint identification (RFFI) is a physical-layer authentication technique that identifies wireless devices through hardware-inherent imperfections.
+Deep learning RFFI systems achieve high accuracy, but their over-parameterized models cannot support real-time per-packet inference on edge hardware.
+Existing lightweight methods rely on hand-crafted architectures or uniform pruning, whose compression ratios follow human intuition rather than the layer-wise heterogeneity of learned RF representations.
+This letter presents an automated pipeline that exploits principal component analysis (PCA) in two complementary roles.
+PCA-driven channel pruning derives each layer's effective dimension from feature-map variance, eliminating hand-picked ratios.
+PCA-aligned distillation projects teacher embeddings into the student's lower-dimensional space, enabling knowledge transfer despite dimensional mismatch.
+An optional iterative mode repeats this pipeline under a configurable accuracy bound.
+Experiments on four architectures with a real-world LoRa dataset demonstrate that a distilled student can outperform an undertrained teacher, with up to 834$\times$ parameter compression and millisecond-level inference on NVIDIA Jetson platforms.
 \end{abstract}
 
 
@@ -54,59 +49,75 @@ Physical layer security, radio frequency fingerprinting, model compression, prin
 
 
 \section{Introduction}
+\label{sec:intro}
 
 Radio frequency fingerprint identification (RFFI) is a physical-layer authentication technique that identifies wireless devices through their hardware-inherent imperfections. Analog components in the transmitter chain, such as oscillators, mixers, and power amplifiers, inevitably deviate from their nominal specifications during manufacturing. These deviations imprint unique distortions on the emitted signal, which are difficult to clone or forge and therefore serve as device identifiers. RFFI is particularly attractive for Internet of Things (IoT) systems, where resource-constrained devices cannot afford conventional cryptographic authentication. State-of-the-art RFFI methods leverage deep learning, such as convolutional neural networks (CNNs) operating on spectrograms or raw I/Q samples, and achieve high identification accuracy with strong robustness to channel variations~\cite{9488793,9715147}.
 
 Practical RFFI deployment, however, imposes stringent real-time requirements. RFFI verification operates on a per-packet basis: every received packet must be authenticated before delivery to upper layers, so that illegitimate packets can be rejected immediately. The inference latency therefore directly adds to packet processing delay, and slow verification can stall the reception pipeline. Modern RFFI systems require sub-millisecond inference on edge platforms to support real-time per-packet authentication. This requirement conflicts with the high-capacity architectures behind accurate RFFI, such as deep convolutional and residual networks~\cite{7780459}. These over-parameterized models exceed the latency and energy budgets of edge hardware. Structural model compression is therefore essential for practical RFFI deployment.
 
 \textbf{Limitations of existing lightweight RFFI approaches.}
-[PLACEHOLDER: This paragraph will review existing lightweight RFFI methods and their limitations. Future work will add 3-5 references covering: (1) manually designed compact RFFI architectures, (2) uniform pruning methods applied to RFFI, (3) other compression techniques for RFFI. The paragraph should emphasize that existing approaches rely on manual design or uniform compression ratios that do not account for layer-wise heterogeneity in learned RF representations.]
+\red{[TODO: This paragraph will review existing lightweight RFFI methods and their limitations. Please add 3--5 references covering: (1) manually designed compact RFFI architectures, (2) uniform pruning methods applied to RFFI, and (3) other compression techniques for RFFI. The paragraph should emphasize that existing approaches rely on manual design or uniform compression ratios that do not account for layer-wise heterogeneity in learned RF representations.]}
 
 General-purpose lightweight neural network design has been extensively studied. One approach redesigns the architecture for efficiency: MobileNets~\cite{howard2017mobilenetsefficientconvolutionalneural}, for example, replace standard convolutions with depthwise separable convolutions and apply a uniform width multiplier. Another approach compresses trained networks through channel pruning based on hand-picked importance criteria. While these paradigms have been applied to RFFI, they share a fundamental limitation: compression ratios are dictated by manual intuition rather than the intrinsic characteristics of learned representations. A uniform width multiplier assumes homogeneous redundancy across all layers, which does not hold in RFFI networks. Physical-layer signal features exhibit strong layer-wise heterogeneity: shallow layers encode low-level time-frequency textures while deep layers capture abstract device-specific patterns. Uniform compression therefore damages information-critical layers while leaving redundant layers unnecessarily wide.
 
 \textbf{Our approach.}
-A key observation underpins this work: a fully trained high-capacity network inherently encodes its own architectural redundancy. The channel-wise energy spectrum obtained by principal component analysis (PCA) on feature maps analytically reveals the exact dimension required to retain the dominant representation variance at each layer. We propose an automated lightweight RFFI framework that exploits PCA in two complementary roles. First, PCA-driven channel pruning automatically determines per-layer compression ratios from feature variance. Second, PCA-aligned distillation bridges the dimensional gap between teacher and student embedding spaces by projecting the teacher's high-dimensional embeddings into the student's low-dimensional space. An optional iterative mode repeats this pipeline under a configurable accuracy floor, enabling progressive compression without manual tuning.
+A key observation underpins this work: a fully trained high-capacity network inherently encodes its own architectural redundancy. The energy spectrum from principal component analysis (PCA) on feature maps reveals the dimension needed to keep the dominant variance at each layer. We propose an automated lightweight RFFI framework that exploits PCA in two complementary roles. First, PCA-driven channel pruning automatically determines per-layer compression ratios from feature variance. Second, PCA-aligned distillation projects the teacher's high-dimensional embeddings into the student's low-dimensional space. An optional iterative mode repeats this pipeline under a configurable accuracy floor.
 
 We evaluate the framework on four diverse architectures with a real-world LoRa dataset and demonstrate millisecond-level end-to-end inference on NVIDIA Jetson edge platforms. The main contributions are:
 \begin{itemize}
-    \item We propose a PCA-driven channel pruning method that analyzes the feature variance of each convolutional layer to automatically derive its effective dimension, eliminating hand-picked compression ratios. It achieves 23.9--834$\times$ parameter compression across four architectures with minimal accuracy loss, and the resulting students complete feature extraction in as little as 0.69~ms on an NVIDIA Jetson Nano.
+    \item We propose a PCA-driven channel pruning method that analyzes the feature variance of each convolutional layer to automatically derive its effective dimension, eliminating hand-picked compression ratios. It achieves up to 834$\times$ parameter compression across four architectures with little accuracy loss, and students extract features in 0.69~ms on a Jetson Nano.
 
-    \item We design a PCA-aligned network distillation paradigm that projects the teacher's high-dimensional embedding space into the student's low-dimensional space, enabling effective knowledge transfer despite dimensional mismatch. The distilled student can outperform an undertrained teacher: the 834$\times$-compressed DenseNet student achieves higher accuracy than its teacher on 11 of 12 test scenarios.
+    \item We design a PCA-aligned network distillation paradigm that projects the teacher's high-dimensional embedding space into the student's low-dimensional space, enabling knowledge transfer despite dimensional mismatch. The 834$\times$-compressed DenseNet student outperforms an undertrained teacher on all six test scenarios.
 
     \item We develop an iterative compression mode that progressively applies PCA-driven pruning and aligned distillation under a configurable accuracy bound. It reaches 67.2$\times$ cumulative compression on ResNet after two rounds, with accuracy improved after the first round.
 \end{itemize}
 
 \section{System Overview}
+\label{sec:overview}
 
 \begin{figure}[t]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/Overview of an RF Fingerprinting System.pdf}
-    \caption{System architecture of the proposed automated lightweight RFFI framework. The compression pipeline employs PCA in two complementary roles: PCA-driven channel pruning determines the student architecture, and PCA-aligned distillation trains the student parameters (Section~III).}
+    \caption{System architecture of the proposed automated lightweight RFFI framework. The compression pipeline employs PCA in two complementary roles: PCA-driven channel pruning determines the student architecture, and PCA-aligned distillation trains the student parameters (Section~\ref{sec:design}).}
     \label{fig:system_arch}
 \end{figure}
 
-Fig.~\ref{fig:system_arch} illustrates the overall workflow of the proposed framework, which operates in three stages: model compression, device enrollment, and runtime authentication. Model compression runs offline and turns a high-capacity teacher network into a compact student network. Enrollment and authentication then run on the edge device, where the student first builds a template database for the authorized devices and afterwards verifies each incoming packet. The framework is organized around a single design principle: all expensive computation is confined to the offline stage, so that online verification costs no more than one forward pass of a small network. Section~III presents the algorithmic details.
+Fig.~\ref{fig:system_arch} illustrates the overall workflow of the proposed framework, which operates in three stages: model compression, device enrollment, and runtime authentication.
+Model compression runs offline and turns a high-capacity teacher network into a compact student network, which is then deployed to the edge device for enrollment and authentication.
 
 \subsection{Model Compression Pipeline}
 
-The compression pipeline consists of three modules, each of which corresponds to one subsection of Section~III.
+The compression pipeline is executed once by a model provider and consists of three modules, each of which corresponds to one subsection of Section~\ref{sec:design}.
 \begin{itemize}
-    \item \textbf{Teacher Network Training} (Section~III-A) trains a high-capacity network that maps signals into a discriminative embedding space, where packets from the same device lie close together and packets from different devices lie far apart. The trained teacher is the only source of information for the rest of the pipeline. Its intermediate feature maps reveal how much redundancy each layer carries, and its embeddings act as supervision targets for the student.
-    \item \textbf{Single-Round Compression} (Section~III-B) converts the teacher into a compact student in one cycle, using PCA in two complementary roles. PCA-driven channel pruning measures the variance of the teacher feature maps to decide how many channels each student layer needs, which removes the need for hand-picked compression ratios. PCA-aligned distillation then trains the student, whose weights are randomly initialized rather than inherited, by projecting the teacher embeddings into the lower-dimensional student space so that supervision remains possible despite the mismatch in dimension. The output of this module is a trained compact student.
-    \item \textbf{Iterative Compression} (Section~III-C) is an optional extension that repeats the single-round procedure, treating the student of one round as the teacher of the next. Compression alters the feature statistics of a network, so a fresh analysis often exposes redundancy that the previous round could not see. The loop stops once the accuracy loss relative to the current teacher exceeds a preset tolerance, which lets the pipeline approach the compression limit without manual tuning.
+    \item \textbf{Teacher Network Training} (Section~\ref{subsec:teacher}) learns a discriminative embedding space in which packets from the same device lie close together.
+    The trained teacher supplies both the feature maps for pruning and the supervision targets for the student.
+    \item \textbf{Single-Round Compression} (Section~\ref{subsec:single_round}) employs PCA in two complementary roles.
+    PCA-driven channel pruning decides how many channels each student layer needs, and PCA-aligned distillation trains the randomly initialized student by projecting the teacher embeddings into the lower-dimensional student space.
+    \item \textbf{Iterative Compression} (Section~\ref{subsec:iterative}) optionally repeats the single-round procedure, treating the student of one round as the teacher of the next, until the accuracy loss exceeds a preset tolerance.
 \end{itemize}
-The pipeline is executed once by a model provider with sufficient computational resources and is therefore free of real-time constraints.
 
 \subsection{Device Enrollment and Authentication}
 
-Once compression is complete, the compact student network is deployed to the edge device, which then operates in two phases. Enrollment is performed once per authorized device: a small number of packets is collected under controlled conditions, and the student converts them into embeddings that are stored as reference templates in a local database. Authentication is performed for every received packet. The student extracts the embedding of the packet and compares it against the stored templates by $k$-nearest neighbor (KNN) search under Euclidean distance. The packet is accepted if it matches an enrolled device and rejected otherwise. Because the architecture search and the training of the student are already finished offline, authentication involves only one forward pass of a small network followed by a distance comparison, which is what makes per-packet verification feasible on resource-constrained edge platforms.
+The compact student then operates on the edge device in two phases.
+Enrollment is performed once per authorized device: the student converts a small number of packets into embeddings that are stored as reference templates in a local database.
+Authentication is performed for every received packet: the student extracts its embedding and compares it against the stored templates by $k$-nearest neighbor (KNN) search under Euclidean distance, accepting the packet if it matches an enrolled device and rejecting it otherwise.
+Because expensive computation is confined to the offline stage, online verification needs only one forward pass and a distance comparison, so per-packet authentication is feasible on edge devices.
 
 \section{PCA-Driven Pruning and Distillation}
+\label{sec:design}
 
-This section describes the algorithms behind the three modules introduced in Section~II. Section~III-A trains the teacher network. Section~III-B presents the single-round compression procedure, which combines PCA-driven channel pruning and PCA-aligned distillation. Section~III-C extends the procedure to an iterative mode for progressive compression.
+This section describes the algorithms behind the three modules introduced in Section~\ref{sec:overview}.
+Section~\ref{subsec:teacher} trains the teacher network.
+Section~\ref{subsec:single_round} presents the single-round compression procedure, which combines PCA-driven channel pruning and PCA-aligned distillation.
+Section~\ref{subsec:iterative} extends the procedure to an iterative mode for progressive compression.
 
 \subsection{Teacher Network Training}
-The teacher is trained first because everything that follows is derived from it, namely the student architecture and the supervision signal used to train the student. The teacher takes short-time Fourier transform (STFT) spectrograms as input and outputs an $\ell_2$-normalized embedding $\mathbf{z} \in \mathbb{R}^{d_t}$, where $d_t$ is the teacher embedding dimension. Training follows a metric learning paradigm, so that identification can be performed by distance comparison rather than by a fixed classifier, which allows new devices to be enrolled without retraining. Each training sample is organized into a triplet $(\mathbf{x}_a, \mathbf{x}_p, \mathbf{x}_n)$, where the anchor $\mathbf{x}_a$ and the positive $\mathbf{x}_p$ come from the same device and the negative $\mathbf{x}_n$ comes from a different device. The teacher is optimized with the triplet margin loss:
+\label{subsec:teacher}
+The teacher is trained first because everything that follows is derived from it, namely the student architecture and the supervision signal used to train the student.
+The teacher takes short-time Fourier transform (STFT) spectrograms as input and outputs an $\ell_2$-normalized embedding $\mathbf{z} \in \mathbb{R}^{d_t}$, where $d_t$ is the teacher embedding dimension.
+Training follows a metric learning paradigm, so that identification can be performed by distance comparison rather than by a fixed classifier, which allows new devices to be enrolled without retraining.
+Each training sample is organized into a triplet $(\mathbf{x}_a, \mathbf{x}_p, \mathbf{x}_n)$, where the anchor $\mathbf{x}_a$ and the positive $\mathbf{x}_p$ come from the same device and the negative $\mathbf{x}_n$ comes from a different device.
+The teacher is optimized with the triplet margin loss:
 \begin{equation}
 \label{eq:triplet}
 \mathcal{L}_{\text{tri}} =
@@ -115,18 +126,31 @@ The teacher is trained first because everything that follows is derived from it,
 \lVert \mathbf{z}_{a} - \mathbf{z}_{n} \rVert_2^2 + m
 \Bigr),
 \end{equation}
-where $m$ is a margin hyperparameter. The loss pulls same-device embeddings together and pushes different-device embeddings apart, which yields the discriminative metric space that the student is later asked to reproduce. Model selection uses KNN accuracy on a validation set, and the best checkpoint is retained. The teacher is then frozen for the remainder of the pipeline, where it provides the feature maps used for channel pruning and the embeddings used as distillation targets.
+where $m$ is a margin hyperparameter.
+The loss pulls same-device embeddings together and pushes different-device embeddings apart, which yields the discriminative metric space that the student is later asked to reproduce.
+Model selection uses KNN accuracy on a validation set, and the best checkpoint is retained.
+The teacher is then frozen for the remainder of the pipeline, where it provides the feature maps used for channel pruning and the embeddings used as distillation targets.
 
 \subsection{Single-Round Compression}
+\label{subsec:single_round}
 
-One compression round has two sequential stages. PCA-driven channel pruning first inspects the frozen teacher and outputs a student architecture, i.e., a per-layer channel configuration. PCA-aligned distillation then takes that architecture and outputs a trained student. The two stages therefore answer two separate questions: how wide the student should be, and how its weights should be learned.
+One compression round has two sequential stages.
+PCA-driven channel pruning first inspects the frozen teacher and outputs a student architecture, i.e., a per-layer channel configuration.
+PCA-aligned distillation then takes that architecture and outputs a trained student.
+The two stages therefore answer two separate questions: how wide the student should be, and how its weights should be learned.
 
 \subsubsection{PCA-Driven Channel Pruning}
 
-This stage takes the frozen teacher as input and produces a student architecture, in two steps. The first step measures how much redundancy each layer carries, and the second step turns those measurements into a concrete network.
+This stage takes the frozen teacher as input and produces a student architecture, in two steps.
+The first step measures how much redundancy each layer carries, and the second step turns those measurements into a concrete network.
 
 \textbf{Step 1: Per-layer PCA analysis.}
-The analysis is performed layer by layer because layers in an RFFI network describe the signal at different levels of abstraction and are therefore unlikely to be redundant to the same degree. Shallow layers encode low-level time-frequency texture, whereas deep layers encode abstract device-specific patterns. The redundancy of a layer is quantified by asking how many channels are actually needed to represent the variation that the layer produces. Given the frozen teacher, we register forward hooks on all convolutional layers and collect their output feature maps over the training set. For a layer with $C$ output channels producing $\mathbf{Y} \in \mathbb{R}^{B \times C \times H \times W}$, where $B$, $H$ and $W$ denote the batch size, height and width, we reshape $\mathbf{Y}$ into $\mathbb{R}^{(B\cdot H\cdot W) \times C}$, so that each spatial location becomes one observation in the $C$-dimensional channel space. PCA on this matrix gives the eigenvalues $\lambda_1 \ge \lambda_2 \ge \dots \ge \lambda_C$, each of which is the variance captured along one principal direction of the channel space.
+The analysis is performed layer by layer because layers in an RFFI network describe the signal at different levels of abstraction and are therefore unlikely to be redundant to the same degree.
+Shallow layers encode low-level time-frequency texture, whereas deep layers encode abstract device-specific patterns.
+The redundancy of a layer is quantified by asking how many channels are actually needed to represent the variation that the layer produces.
+Given the frozen teacher, we register forward hooks on all convolutional layers and collect their output feature maps over the training set.
+For a layer with $C$ output channels producing $\mathbf{Y} \in \mathbb{R}^{B \times C \times H \times W}$, where $B$, $H$ and $W$ denote the batch size, height and width, we reshape $\mathbf{Y}$ into $\mathbb{R}^{(B\cdot H\cdot W) \times C}$, so that each spatial location becomes one observation in the $C$-dimensional channel space.
+PCA on this matrix gives the eigenvalues $\lambda_1 \ge \lambda_2 \ge \dots \ge \lambda_C$, each of which is the variance captured along one principal direction of the channel space.
 
 The fraction of variance retained by the leading $k$ principal components is
 \begin{equation}
@@ -139,18 +163,29 @@ Given a variance threshold $\tau$, the effective dimension of the layer is the s
 \label{eq:eff_dim}
 d_{\text{eff}} = \argmin_k \left\{ \text{cumsum}(k) \geq \tau \right\}.
 \end{equation}
-A layer whose $d_{\text{eff}}$ is far below $C$ is producing outputs that essentially live in a low-dimensional subspace, and its width can be reduced accordingly. The threshold $\tau$ is the only knob of the whole analysis, and it has a direct interpretation as the fraction of feature variance the designer is willing to keep.
+A layer whose $d_{\text{eff}}$ is far below $C$ is producing outputs that essentially live in a low-dimensional subspace, and its width can be reduced accordingly.
+The threshold $\tau$ is the only knob of the whole analysis, and it has a direct interpretation as the fraction of feature variance the designer is willing to keep.
 
-Not every convolution is analyzed. Auxiliary convolutions, such as shortcut projections, downsampling layers and depthwise separable convolutions, are excluded, because their channel counts are structurally tied to the neighboring main-branch layers and cannot be chosen independently without breaking the network topology.
+Not every convolution is analyzed.
+Auxiliary convolutions, such as shortcut projections, downsampling layers and depthwise separable convolutions, are excluded, because their channel counts are tied to neighboring main-branch layers and cannot be chosen independently.
 
 \textbf{Step 2: Student model construction.}
-The measured effective dimensions are then turned into an architecture. The channel count of each main-branch convolutional layer is set to its own $d_{\text{eff}}$, while the macro-topology of the teacher, such as residual connections or dense blocks, is left unchanged, so that the student remains a narrower version of a known-good design rather than a new one. Auxiliary convolutions inherit their channel counts from the main-branch layers they connect to, which keeps the network structurally consistent. A minimum channel count $c_{\min}$ prevents a layer from collapsing to a degenerate width, and the student embedding dimension is set to $d_s \ll d_t$. The student is randomly initialized and inherits no weights from the teacher, so all of its parameters are learned in the distillation stage that follows.
+The measured effective dimensions are then turned into an architecture.
+The channel count of each main-branch convolutional layer is set to its own $d_{\text{eff}}$, while the macro-topology of the teacher, such as residual connections or dense blocks, is left unchanged, so that the student remains a narrower version of a known-good design rather than a new one.
+Auxiliary convolutions inherit their channel counts from the main-branch layers they connect to, which keeps the network structurally consistent.
+A minimum channel count $c_{\min}$ prevents a layer from collapsing to a degenerate width, and the student embedding dimension is set to $d_s \ll d_t$.
+The student is randomly initialized and inherits no weights from the teacher, so all of its parameters are learned in the distillation stage that follows.
 
 \subsubsection{PCA-Aligned Network Distillation}
 
-This stage takes the student architecture from Step 2 and trains its weights under the supervision of the frozen teacher. The obstacle is that the two networks no longer speak the same language: the teacher embedding lives in $\mathbb{R}^{d_t}$ and the student embedding in $\mathbb{R}^{d_s}$ with $d_s \ll d_t$, so the two outputs cannot be compared directly. Instead of adding a trainable adapter layer, we bring the teacher down to the student dimension with a PCA projection, which is obtained analytically from the teacher embeddings themselves and keeps the directions along which the teacher separates devices most strongly.
+This stage takes the student architecture from Step 2 and trains its weights under the supervision of the frozen teacher.
+The obstacle is that the two networks no longer speak the same language: the teacher embedding lives in $\mathbb{R}^{d_t}$ and the student embedding in $\mathbb{R}^{d_s}$ with $d_s \ll d_t$, so the two outputs cannot be compared directly.
+Instead of adding a trainable adapter layer, we bring the teacher down to the student dimension with a PCA projection, which is obtained analytically from the teacher embeddings themselves and keeps the directions along which the teacher separates devices most strongly.
 
-Let $f_t(\cdot;\theta_t)$ denote the frozen teacher. All training samples are passed through $f_t$ to form the teacher embedding matrix $\mathbf{Z}_{\text{teach}} \in \mathbb{R}^{N \times d_t}$, where $N$ is the number of training samples. PCA on this matrix yields a mean vector $\boldsymbol{\mu} \in \mathbb{R}^{d_t}$ and a projection matrix $\mathbf{W} \in \mathbb{R}^{d_t \times d_s}$ whose columns are the $d_s$ leading eigenvectors. Each teacher embedding is then centered, projected and normalized as
+Let $f_t(\cdot;\theta_t)$ denote the frozen teacher.
+All training samples are passed through $f_t$ to form the teacher embedding matrix $\mathbf{Z}_{\text{teach}} \in \mathbb{R}^{N \times d_t}$, where $N$ is the number of training samples.
+PCA on this matrix yields a mean vector $\boldsymbol{\mu} \in \mathbb{R}^{d_t}$ and a projection matrix $\mathbf{W} \in \mathbb{R}^{d_t \times d_s}$ whose columns are the $d_s$ leading eigenvectors.
+Each teacher embedding is then centered, projected and normalized as
 \begin{equation}
 \label{eq:proj}
 \hat{\mathbf{z}}_t =
@@ -158,9 +193,11 @@ Let $f_t(\cdot;\theta_t)$ denote the frozen teacher. All training samples are pa
 (\mathbf{z}_t - \boldsymbol{\mu}) \, \mathbf{W}
 \right),
 \end{equation}
-where $\operatorname{Norm}(\cdot)$ denotes $\ell_2$ normalization. Teacher and student now share the same $\mathbb{R}^{d_s}$ space, so their outputs can be compared directly.
+where $\operatorname{Norm}(\cdot)$ denotes $\ell_2$ normalization, after which teacher and student share $\mathbb{R}^{d_s}$ and can be compared directly.
 
-Training reuses the triplet sampling of Section~III-A. For each triplet $(\mathbf{x}_a, \mathbf{x}_p, \mathbf{x}_n)$, the student $f_s(\cdot;\theta_s)$ produces the embeddings $(\mathbf{z}_{a,s}, \mathbf{z}_{p,s}, \mathbf{z}_{n,s}) \in \mathbb{R}^{d_s}$, while the frozen teacher produces $(\mathbf{z}_{a,t}, \mathbf{z}_{p,t}, \mathbf{z}_{n,t})$, which~\eqref{eq:proj} maps to $(\hat{\mathbf{z}}_{a,t}, \hat{\mathbf{z}}_{p,t}, \hat{\mathbf{z}}_{n,t}) \in \mathbb{R}^{d_s}$. The student is trained by minimizing the temperature-scaled KL divergence between the projected teacher distribution and the student distribution,
+Training reuses the triplet sampling of Section~\ref{subsec:teacher}.
+For each triplet $(\mathbf{x}_a, \mathbf{x}_p, \mathbf{x}_n)$, the student $f_s(\cdot;\theta_s)$ produces the embeddings $(\mathbf{z}_{a,s}, \mathbf{z}_{p,s}, \mathbf{z}_{n,s}) \in \mathbb{R}^{d_s}$, while the frozen teacher produces $(\mathbf{z}_{a,t}, \mathbf{z}_{p,t}, \mathbf{z}_{n,t})$, which~\eqref{eq:proj} maps to $(\hat{\mathbf{z}}_{a,t}, \hat{\mathbf{z}}_{p,t}, \hat{\mathbf{z}}_{n,t}) \in \mathbb{R}^{d_s}$.
+The student is trained by minimizing the temperature-scaled KL divergence between the projected teacher distribution and the student distribution,
 \begin{equation}
 \label{eq:kd}
 \mathcal{L}_{\text{KD}} =
@@ -171,15 +208,19 @@ T^2 \sum_{\mathbf{q} \in \{a,p,n\}}
 \operatorname{softmax}\!\left(\frac{\mathbf{z}_{\mathbf{q},s}}{T}\right)
 \right),
 \end{equation}
-where the temperature $T$ controls how soft the target distribution is. Summing the loss over the anchor, positive and negative positions makes the student reproduce not only where the teacher places an individual packet, but also how the teacher relates same-device and different-device packets to each other, which is the property that KNN authentication depends on.
+where the temperature $T$ controls how soft the target distribution is.
+Summing the loss over the anchor, positive and negative positions makes the student reproduce how the teacher places packets and relates same-device versus different-device samples, as required by subsequent KNN authentication.
 
 \subsection{Iterative Compression}
+\label{subsec:iterative}
 
-One round does not necessarily exhaust the redundancy of a network. Pruning changes the feature statistics of every layer, so once the student of the first round is trained, running the same analysis on its own feature maps often reveals redundancy that was not visible in the teacher. This motivates an iterative mode that repeats the single-round procedure and lets the compression ratio grow until accuracy starts to suffer, rather than fixing the number of rounds in advance.
+One round does not necessarily exhaust the redundancy of a network.
+Pruning changes the feature statistics of every layer, so once the student of the first round is trained, running the same analysis on its own feature maps often reveals redundancy that was not visible in the teacher.
+This motivates an iterative mode that repeats the single-round procedure and lets the compression ratio grow until accuracy starts to suffer, rather than fixing the number of rounds in advance.
 
-Let $\theta_t^{(r)}$ denote the teacher of round $r$, with $\theta_t^{(1)}$ being the initially trained high-capacity network. Each round proceeds as follows.
+Let $\theta_t^{(r)}$ denote the teacher of round $r$, with $\theta_t^{(1)}$ being the initially trained high-capacity network. Each round then applies the following four steps.
 \begin{enumerate}
-    \item Apply the per-layer PCA analysis of Section~III-B to $\theta_t^{(r)}$ to obtain a new set of effective dimensions;
+    \item Apply the per-layer PCA analysis of Section~\ref{subsec:single_round} to $\theta_t^{(r)}$ to obtain a new set of effective dimensions;
     \item Instantiate a randomly initialized student according to these dimensions;
     \item Train the student by PCA-aligned distillation from $\theta_t^{(r)}$, which gives $\theta_s^{(r)}$;
     \item Compare the two accuracies. If $\text{Acc}(\theta_t^{(r)}) - \text{Acc}(\theta_s^{(r)}) \le \delta$, accept the student, set $\theta_t^{(r+1)} \leftarrow \theta_s^{(r)}$ and start the next round; otherwise stop and return $\theta_s^{(r-1)}$.
@@ -190,31 +231,31 @@ Because every round compresses a network that is already compressed, the cumulat
 \section{Experimental Evaluation}
 \label{sec:experimental_evaluation}
 
+
 \subsection{Experimental Setup}
 \label{subsec:experimental_setup}
 
-\subsubsection{Dataset Description}
+\subsubsection{Dataset}
 \label{subsubsec:dataset_description}
 
-Our experiments utilize a large-scale LoRa RF fingerprinting dataset collected from 60 commercial devices, i.e., Pycom LoPy4/FiPy modules, and a USRP N210 SDR receiver~\cite{shen2021towards}.
+Our experiments use a large-scale LoRa RFFI dataset collected from 60 commercial devices, i.e., Pycom LoPy4/FiPy modules, and a USRP N210 SDR receiver~\cite{9715147}.
 The training set consists of 800 packets per device from 40 devices, collected in a controlled, stationary line-of-sight (LOS) residential environment.
-The test set evaluates the system across diverse scenarios, from ideal to challenging channel conditions: seen devices under static LOS (three locations A, B, C), unseen devices under NLOS conditions (three obstructed locations D, E, F), and mobile scenarios including device movement in a LOS office and a NLOS meeting room.
-All signals are preprocessed via short-time Fourier transform (STFT) to produce single-channel spectrograms.
+The test set covers six sub-scenarios ranging from ideal to challenging channel conditions: static LOS at three locations (A, B, C), and non-line-of-sight (NLOS) at three obstructed locations (D, E, F).
+All signals are preprocessed via STFT to produce single-channel spectrograms, consistent with Section~\ref{subsec:teacher}.
 
-\subsubsection{Experimental Platforms and Hyperparameters}
+\subsubsection{Hardware Platforms}
+\label{subsubsec:platforms}
+
+Teacher training and model compression are performed on a server equipped with an Intel Core i9 CPU and an NVIDIA RTX 4090 GPU.
+To validate edge deployment feasibility, the trained student models are deployed on an NVIDIA Jetson Nano with 4~GB memory.
+
+\subsubsection{Training Configuration}
 \label{subsubsec:hyperparameters}
 
-The training process is performed on a high-performance server equipped with an Intel Core i9 CPU and an NVIDIA RTX 4090 GPU running PyTorch 2.0.
-To validate edge deployment feasibility, we deploy the trained student models on an NVIDIA Jetson Nano (4~GB).
-All teacher and student networks are trained using the Adam optimizer with an initial learning rate of $10^{-3}$ and a batch size of 16--32.
-For teacher pre-training, the triplet margin is set to $m = 0.1$.
-For distillation, we use temperature $T = 3.0$, PCA channel threshold $\tau = 0.95$, minimum channels $c_{\min} = 2$, and student embedding dimension $d_s = 8$.
-To address the cold-start problem of training randomly initialized compact networks, we apply minimum epoch warmup ($E_{\min} = 50$ epochs) before activating early stopping, and terminate training if validation accuracy fails to improve for $P = 10$ consecutive epochs after warmup.
-The checkpoint with the highest validation accuracy is restored at the end.
-Evaluation uses KNN ($k = 5$) on L2-normalized embeddings with a 50/50 enrollment/test split stratified by device label.
-
-\subsubsection{Teacher Model Selection and Validation Dynamics}
-At the end of each training epoch, the model is evaluated on a randomly sampled 10\% subset of the validation set using KNN on L2-normalized embeddings. The checkpoint with the highest validation accuracy is selected as the teacher, frozen, and used as the supervisor for all subsequent distillation stages.
+All networks are implemented in PyTorch 2.0 and trained with Adam, a learning rate of $10^{-3}$, and a batch size of 16--32.
+The teacher uses the triplet margin $m = 0.1$, and the best validation checkpoint is retained.
+Compression uses $T = 3.0$, $\tau = 0.95$, $c_{\min} = 2$, and $d_s = 8$.
+Student training applies a 50-epoch warmup, then early stopping with patience 10.
 
 \begin{figure}[!t]
     \centering
@@ -223,112 +264,137 @@ At the end of each training epoch, the model is evaluated on a randomly sampled 
     \label{fig:pruning_distillation_comparison}
 \end{figure}
 
-\subsection{Distillation Across Different Network Families}
+\subsection{Effect of Single-Round Compression}
+\label{subsec:cross_family}
 
-\begin{table}
-\caption{Complexity and Hardware Throughput.}
+\begin{table}[!t]
+\caption{Model Complexity and Inference Latency}
 \label{tab:final_merged_complete}
 \centering
+\setlength{\tabcolsep}{2.8pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{threeparttable}
 \scriptsize
-\setlength{\tabcolsep}{2.0pt}
-\begin{tabular}{l|c|c|c|c|cc|cc}
+\begin{tabular}{@{}llrrrrrrr@{}}
 \toprule
-\multirow{3}{*}{\textbf{Model}} & \multirow{3}{*}{\textbf{Type}} & \multirow{3}{*}{\textbf{Size}} & \multirow{3}{*}{\textbf{Params}} & \multirow{3}{*}{\textbf{FLOPs}} & \multicolumn{2}{c|}{\textbf{Jetson Nano}} & \multicolumn{2}{c}{\textbf{RTX 4090}} \\
-\cmidrule(lr){6-7} \cmidrule(lr){8-9}
-& & & & & \textbf{Feat.} & \textbf{Total} & \textbf{Feat.} & \textbf{Total} \\
-& & & & & \textbf{(ms)} & \textbf{(ms)} & \textbf{($\mu$s)} & \textbf{($\mu$s)} \\
+ & & Size & Params & FLOPs & \multicolumn{2}{c}{Jetson Nano (ms)} & \multicolumn{2}{c@{}}{RTX 4090 ($\mu$s)} \\
+\cmidrule(lr){6-7} \cmidrule(l){8-9}
+Model & & (KB) & (K) & (M) & Feat. & Total & Feat. & Total \\
 \midrule
-\multirow{2}{*}{ResNet18} & T & 802.32 KB & 203.26K & 268.12M & 4.45 & 33.36 & 94.3 & 166.0 \\
-& S & 43.28 KB & 8.50K & 13.04M & 1.19 & 1.60 & 19.9 & 63.1 \\
-\midrule
-\multirow{2}{*}{SCSKNet} & T & 837.76 KB & 210.67K & 268.38M & 4.77 & 24.66 & 97.1 & 165.3 \\
-& S & 33.51 KB & 4.95K & 7.25M & 0.89 & 1.31 & 16.7 & 58.6 \\
-\midrule
-\multirow{2}{*}{ShuffleNet} & T & 7124.85 KB & 1777.97K & 21.89M & 9.99 & 29.31 & 242.6 & 313.3 \\
-& S & 294.85 KB & 42.74K & 1.19M & 0.77 & 1.08 & 42.3 & 84.6 \\
-\midrule
-\multirow{2}{*}{DenseNet} & T & 29768.69 KB & 7472.38K & 366.07M & 1.82 & 19.30 & 54.8 & 121.5 \\
-& S & 144.51 KB & 8.96K & 1.60M & 0.69 & 1.01 & 49.7 & 92.4 \\
+\multirow{2}{*}{ResNet18} & T & 802.32 & 203.26 & 268.12 & 4.45 & 33.36 & 94.3 & 166.0 \\
+ & S & 43.28 & 8.50 & 13.04 & 1.19 & 1.60 & 19.9 & 63.1 \\
+\addlinespace
+\multirow{2}{*}{SCSKNet} & T & 837.76 & 210.67 & 268.38 & 4.77 & 24.66 & 97.1 & 165.3 \\
+ & S & 33.51 & 4.95 & 7.25 & 0.89 & 1.31 & 16.7 & 58.6 \\
+\addlinespace
+\multirow{2}{*}{ShuffleNet} & T & 7124.85 & 1777.97 & 21.89 & 9.99 & 29.31 & 242.6 & 313.3 \\
+ & S & 294.85 & 42.74 & 1.19 & 0.77 & 1.08 & 42.3 & 84.6 \\
+\addlinespace
+\multirow{2}{*}{DenseNet} & T & 29768.69 & 7472.38 & 366.07 & 1.82 & 19.30 & 54.8 & 121.5 \\
+ & S & 144.51 & 8.96 & 1.60 & 0.69 & 1.01 & 49.7 & 92.4 \\
 \bottomrule
 \end{tabular}
-
-\begin{tablenotes}
-\footnotesize
-\item[*] Abbreviations: T = Teacher, S = Student. 'Feat.' denotes backbone feature extraction time; 'Total' denotes end-to-end latency including template matching classification.
+\begin{tablenotes}[para,flushleft]
+\scriptsize
+\item T: teacher; S: student. Feat.: backbone feature extraction. Total: end-to-end latency including template matching.
 \end{tablenotes}
+\end{threeparttable}
 \end{table}
 
-Table~\ref{tab:final_merged_complete} reports the complexity and inference latency of the four teacher--student pairs, and Fig.~\ref{fig:pruning_distillation_comparison} compares their identification accuracy across the 12 test sub-scenarios.
+This subsection verifies that the PCA-driven pipeline is not tailored to one specific network.
+We apply one compression round to four architectures with distinct design philosophies, namely ResNet18, SCSKNet, ShuffleNet, and DenseNet, and compare each student with its teacher.
+Identification accuracy is measured by KNN ($k = 5$) on $\ell_2$-normalized embeddings, using a 50/50 enrollment/test split stratified by device label.
+Table~\ref{tab:final_merged_complete} reports the complexity of the four teacher--student pairs, and Fig.~\ref{fig:pruning_distillation_comparison} compares their identification accuracy across the six test sub-scenarios.
 
-The ResNet18 teacher--student pair represents the canonical case where the teacher is well-trained.
-The student reduces the parameter count from 203.26K to 8.50K (23.9$\times$ compression) and FLOPs from 268.12M to 13.04M (20.6$\times$ reduction), while maintaining competitive accuracy across all scenarios.
-On LOS channels A and C (Fig.~\ref{fig:pruning_distillation_comparison}a), the student achieves 99.8\% and 96.4\% respectively, closely tracking the teacher's 99.7\% and 99.8\%.
-Notably, the student surpasses the teacher on the NLOS E channel (84.6\% vs.\ 62.5\%) and on Walk B (99.9\% vs.\ 92.6\%), suggesting that the PCA-derived compact architecture is less prone to overfitting under channel degradation.
-The student model occupies only 43.28~KB of storage, making it suitable for deployment on the most memory-constrained edge devices.
+We first examine ResNet18, which represents the canonical case where the teacher is well-trained.
+The student reduces the parameter count from 203.26K to 8.50K, i.e., 23.9$\times$ compression, and FLOPs from 268.12M to 13.04M, i.e., a 20.6$\times$ reduction, while maintaining competitive accuracy across all scenarios.
+On LOS channels A and C in Fig.~\ref{fig:pruning_distillation_comparison}(a), the student achieves 99.8\% and 96.4\% respectively, closely tracking the teacher's 99.7\% and 99.8\%.
+Notably, the student surpasses the teacher on the NLOS E channel (84.6\% vs.\ 62.5\%) and on LOS B (99.4\% vs.\ 98.5\%), suggesting that the PCA-derived compact architecture is less prone to overfitting under channel degradation.
+The student occupies only 43.28~KB of storage, which suits memory-constrained edge devices.
 
 The remaining three architectures reveal a recurring phenomenon: although the distilled students operate at a fraction of the parameter budget, they remain competitive with their teachers, and two of the three students outperform their teachers on a majority of the test scenarios.
-The SCSKNet student reduces parameters by 42.6$\times$ (210.67K to 4.95K) and stays within 3 percentage points of the teacher on 10 of the 12 scenarios, matching it on NLOS F (99.9\%) and achieving higher accuracy on Mobile Meeting (95.0\% vs.\ 92.2\%).
-The ShuffleNet student, at 42.74K parameters (41.6$\times$ compression), exceeds the teacher on 8 of the 12 evaluated scenarios, with the most pronounced gains on NLOS E (68.1\% vs.\ 52.3\%, $+$15.8\%) and LOS B (93.1\% vs.\ 82.4\%, $+$10.7\%).
-The DenseNet student achieves the most dramatic compression---from 7,472.38K to 8.96K parameters (834$\times$) and from 366.07M to 1.60M FLOPs (228.8$\times$)---while outperforming the teacher on 11 of the 12 scenarios, including NLOS D (92.2\% vs.\ 90.2\%) and Mobile Meeting (98.5\% vs.\ 93.2\%).
+The SCSKNet student reduces parameters by 42.6$\times$ (210.67K to 4.95K) and stays within 3 percentage points of the teacher on 5 of the 6 scenarios, matching it on NLOS D (97.2\%) and NLOS F (99.9\%).
+The ShuffleNet student, at 42.74K parameters (41.6$\times$ compression), exceeds the teacher on 5 of the 6 scenarios, with the largest gains on NLOS E (68.1\% vs.\ 52.3\%) and LOS B (93.1\% vs.\ 82.4\%).
+The DenseNet student achieves the largest compression, from 7,472.38K to 8.96K parameters (834$\times$) and from 366.07M to 1.60M FLOPs (228.8$\times$), while outperforming the teacher on all six scenarios, including NLOS D (92.2\% vs.\ 90.2\%) and NLOS E (60.4\% vs.\ 51.2\%).
 
-The observed better performance of the student over its teacher stems from a dual purification mechanism. First, although the teacher networks—trained under severe SNR augmentations or early termination—exhibit non-trivial manifest noise under direct KNN evaluation, they still encode underlying structural inter-device similarities. Second, the PCA projection onto the $d_s$-dimensional subspace acts as an analytical filter, systematically discarding perturbation-dominated dimensions while isolating the dominant variance directions. By optimizing against these structurally filtered soft labels, the student network successfully bypasses the teacher's original empirical noise, yielding a more robust and purified representation.
+Fig.~\ref{fig:pruning_distillation_comparison} also isolates the contribution of PCA-aligned distillation by including a pruned student trained with the triplet loss only.
+On SCSKNet in Fig.~\ref{fig:pruning_distillation_comparison}(b), distillation raises accuracy from 64.2\% to 88.2\% on LOS B and from 50.9\% to 79.7\% on NLOS E, which shows that the compact models rely on distillation rather than on the pruned architecture alone.
 
-\subsection{Iterative Distillation and Progressive Compression}
+The cases where the student outperforms its teacher can be explained as follows.
+The teachers are trained under strong SNR augmentation or terminated early, so their embeddings contain noise when evaluated directly by KNN, even though the underlying inter-device structure is preserved.
+The PCA projection in~\eqref{eq:proj} keeps only the $d_s$ leading variance directions and thereby discards the perturbation-dominated dimensions.
+The student is optimized against these filtered targets and thus learns a cleaner representation than the teacher itself exhibits.
+In summary, the single-round pipeline delivers up to 834$\times$ compression across four architectures without manual tuning, and a distilled student can exceed an undertrained teacher.
 
-Fig.~\ref{fig:iterative} and Table~\ref{tab:iterative_trace} present the iterative distillation trajectory for ResNet across early rounds. Round 1 reduces parameters from 203.3K to 13.8K ($14.7\times$) while yielding even better generalization, with accuracy boosting to 84.6\% in NLOS-E. Round 2 further compresses the network to 3.0K parameters ($67.2\times$), maintaining acceptable performance (e.g., 97.05\% in NLOS-D) within the threshold $\delta = 20\%$. Though Round 3 reaches a near-minimal configuration with only 1.4K parameters, it still sustains a reasonable 92.70\% accuracy in NLOS-D, before structural capacity collapses in Round 4.
+\subsection{Effect of Iterative Compression}
+\label{subsec:iterative_eval}
 
 \begin{figure}[t]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/feature_visualization.pdf}
-    \caption{Embedding space visualization and iterative distillation trajectory for ResNet across three compression rounds.}
+    \caption{Embedding space visualization and iterative distillation trajectory for ResNet18 across three compression rounds.}
     \label{fig:iterative}
 \end{figure}
 
-\begin{table}[t]
-\caption{Per-layer PCA effective dimensions across iterative distillation rounds on ResNet.}
+This subsection evaluates how far the iterative mode of Section~\ref{subsec:iterative} can push the compression ratio before accuracy degrades.
+We apply the iterative procedure to ResNet18 with an accuracy tolerance of $\delta = 20\%$, and report KNN accuracy with the same enrollment/test protocol as in Section~\ref{subsec:cross_family}.
+Fig.~\ref{fig:iterative} visualizes the embedding space after each round, and Table~\ref{tab:iterative_trace} traces the per-round channel configuration, parameter count, and accuracy on a LOS and an NLOS scenario.
+
+Round 1 reduces the parameters from 203.3K to 13.8K ($14.7\times$) while yielding even better generalization, with accuracy rising to 84.6\% on NLOS-E.
+Round 2 further compresses the network to 3.0K parameters ($67.2\times$ cumulative) and maintains acceptable performance, e.g., 97.05\% on NLOS-D, within the tolerance $\delta$.
+Round 3 reaches a near-minimal configuration with only 1.4K parameters and still sustains 92.70\% accuracy on NLOS-D, before the structural capacity collapses in Round 4 and the loop terminates.
+The embedding visualization in Fig.~\ref{fig:iterative} shows that the devices remain well separated through the first rounds and only begin to overlap as the width approaches the minimum channel count.
+These results indicate that iterative compression approaches the channel-level compression limit automatically, with the tolerance $\delta$ as the only user-facing control.
+
+
+\begin{table}[!t]
+\caption{Iterative Compression of ResNet18}
 \label{tab:iterative_trace}
 \centering
 \footnotesize
-\setlength{\tabcolsep}{5.5pt} % 优化间距，使多行表头排版更紧凑
-\begin{tabular}{l|c|r|c|c|c}
+\setlength{\tabcolsep}{5.2pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{threeparttable}
+\begin{tabular}{@{}lcrcc@{}}
 \toprule
-\textbf{Round} & \textbf{Channel Config} & \textbf{Params} & \textbf{LOS} & \textbf{NLOS} & \textbf{Walk} \\
-& $[c_1, c_2, c_3, c_4, c_5]$ & & \textbf{-A} & \textbf{-D} & \textbf{-F} \\
+ & & & \multicolumn{2}{c@{}}{Accuracy (\%)} \\
+\cmidrule(l){4-5}
+Round & Channels & Params & LOS-A & NLOS-D \\
 \midrule
-Teacher & [32, 32, 32, 64, 64] & 203,264 & 99.70 & 100.00 & 98.90 \\
-Round 1 & [10, 12, 13, 19, 7]  & 13,784  & 99.80 & 99.40  & 99.40 \\
-Round 2 & [8, 9, 4, 4, 4]       & 3,024   & 96.95 & 97.05  & 90.85 \\
-Round 3 & [5, 6, 3, 2, 2]       & 1,364   & 96.00 & 92.70  & 96.85 \\
+Teacher & $[32,32,32,64,64]$ & 203\,264 & 99.70 & 100.00 \\
+Round 1 & $[10,12,13,19,7]$ & 13\,784 & 99.80 & 99.40 \\
+Round 2 & $[8,9,4,4,4]$ & 3\,024 & 96.95 & 97.05 \\
+Round 3 & $[5,6,3,2,2]$ & 1\,364 & 96.00 & 92.70 \\
 \bottomrule
 \end{tabular}
-\vspace{2pt}
-\begin{tablenotes}
+\begin{tablenotes}[para,flushleft]
 \footnotesize
-\item[*] Note: LOS-A, NLOS-D, and Walk-F represent static line-of-sight, complex non-line-of-sight, and dynamic walking environments, respectively.
+\item Channels are the per-layer widths $[c_1,\ldots,c_5]$. LOS-A and NLOS-D denote static line-of-sight and non-line-of-sight scenarios, respectively.
 \end{tablenotes}
+\end{threeparttable}
 \end{table}
 
 \subsection{Inference Latency on Edge Platforms}
+\label{subsec:latency_eval}
 
-To evaluate the real-time capability of the PCA-derived student networks, we measure inference latency, decomposing end-to-end latency into feature extraction and classification.
-Table~\ref{tab:final_merged_complete} reports both quantities for every teacher and student network on the two platforms.
+This subsection verifies that the compressed students meet the real-time requirement identified in Section~\ref{sec:intro}.
+We measure the inference latency of every teacher and student network on both the Jetson Nano and the RTX 4090, decomposing the end-to-end latency into feature extraction and template matching, as reported in Table~\ref{tab:final_merged_complete}.
 
-On the Jetson Nano, the ResNet18 teacher backbone requires 4.45~ms for feature extraction and 33.36~ms end-to-end (30~FPS), making it unsuitable for real-time per-packet authentication.
-In contrast, all student backbones complete feature extraction in under 1.2~ms, with end-to-end latency ranging from 1.01~ms (DenseNet) to 1.60~ms (ResNet18), corresponding to 625--990~FPS on the same constrained hardware---a throughput that exceeds typical LoRa packet rates by a wide margin.
+On the Jetson Nano, the ResNet18 teacher requires 4.45~ms for feature extraction and 33.36~ms end-to-end, i.e., about 30 packets per second, which cannot support real-time per-packet authentication.
+In contrast, all student backbones complete feature extraction in under 1.2~ms, and their end-to-end latency ranges from 1.01~ms for DenseNet to 1.60~ms for ResNet18, corresponding to 625--990 packets per second on the same constrained hardware.
+This throughput exceeds typical LoRa packet rates by a wide margin.
 
-On the RTX~4090, the student backbones execute feature extraction within 16.7--49.7~$\mu$s per inference.
-With PCA-accelerated classification, end-to-end throughput reaches 10,800--17,000~FPS across all student networks.
-These results confirm that the proposed automated pipeline produces models that are not only parameter- and storage-efficient, but also latency-optimal for real-time edge RFFI deployment across heterogeneous hardware platforms.
+On the RTX 4090, the student backbones complete feature extraction within 16.7--49.7~$\mu$s per inference, and the end-to-end throughput reaches 10,800--17,000 packets per second across all student networks.
+These results confirm that the proposed pipeline produces models that are not only parameter- and storage-efficient but also fast enough for real-time RFFI deployment on heterogeneous hardware platforms.
 
 
 \section{Conclusion}
 \label{sec:conclusion}
-This paper presents an automated lightweight RFFI pipeline that integrates PCA-driven channel analysis, structural pruning with random reinitialization, and self-distillation via PCA-aligned KL divergence.
-By deriving per-layer channel budgets from the PCA energy spectrum of trained networks, the pipeline eliminates manual architecture design and replaces heuristic width multipliers with a data-driven criterion.
-Self-distillation enables randomly-initialized compact networks to recover teacher-level discriminability, and we demonstrate that distillation additionally serves as a representation purification mechanism: students of undertrained teachers frequently outperform their teachers.
-An iterative extension provides accuracy-bounded progressive compression, automatically pushing the model toward the practical channel-level compression limit.
-Experiments across four diverse architectures on a real-world LoRa dataset demonstrate 23.9--834$\times$ parameter compression with minimal accuracy degradation, and edge deployment on an NVIDIA Jetson Nano achieves over 600~FPS inference throughput.
-This work provides a practical, fully automated path toward deploying secure, low-latency RFFI systems on resource-constrained edge platforms without sacrificing performance.
+This work presented an automated lightweight RFFI pipeline that integrates PCA-driven channel pruning and PCA-aligned distillation.
+Per-layer channel budgets come from the feature-map variance of a trained network, removing hand-picked ratios.
+PCA-aligned distillation trains the student in a shared embedding space, and the student can outperform an undertrained teacher.
+An iterative mode repeats the pipeline under an accuracy bound.
+On four architectures and a LoRa dataset, the pipeline achieves up to 834$\times$ compression and over 600 packets per second on a Jetson~Nano.
 
 
 \bibliographystyle{IEEEtran}
