@@ -34,7 +34,7 @@
 \begin{abstract}
 Radio frequency fingerprint identification (RFFI) is a physical-layer authentication technique that identifies wireless devices through hardware-inherent imperfections.
 Deep learning RFFI systems achieve high accuracy, but their over-parameterized models cannot support real-time per-packet inference on edge hardware.
-Existing lightweight methods rely on hand-crafted architectures or uniform pruning, whose compression ratios follow human intuition rather than the layer-wise heterogeneity of learned RF representations.
+Existing lightweight methods rely on hand-crafted architectures or uniform pruning, whose compression ratios follow human intuition rather than the redundancy already encoded in a trained network.
 This letter presents an automated pipeline that exploits principal component analysis (PCA) in two complementary roles.
 PCA-driven channel pruning derives each layer's effective dimension from feature-map variance, eliminating hand-picked ratios.
 PCA-aligned distillation projects teacher embeddings into the student's lower-dimensional space, enabling knowledge transfer despite dimensional mismatch.
@@ -51,19 +51,32 @@ Physical layer security, radio frequency fingerprinting, model compression, prin
 \section{Introduction}
 \label{sec:intro}
 
-Radio frequency fingerprint identification (RFFI) is a physical-layer authentication technique that identifies wireless devices through their hardware-inherent imperfections. Analog components in the transmitter chain, such as oscillators, mixers, and power amplifiers, inevitably deviate from their nominal specifications during manufacturing. These deviations imprint unique distortions on the emitted signal, which are difficult to clone or forge and therefore serve as device identifiers. RFFI is particularly attractive for Internet of Things (IoT) systems, where resource-constrained devices cannot afford conventional cryptographic authentication. State-of-the-art RFFI methods leverage deep learning, such as convolutional neural networks (CNNs) operating on spectrograms or raw I/Q samples, and achieve high identification accuracy with strong robustness to channel variations~\cite{9488793,9715147}.
+Radio frequency fingerprint identification (RFFI) is a physical-layer authentication technique that identifies wireless devices through their hardware-inherent imperfections.
+Analog components in the transmitter chain, such as oscillators, mixers, and power amplifiers, inevitably deviate from their nominal specifications during manufacturing~\cite{polak2011identifying,zhang2021radio}.
+These deviations imprint unique distortions on the emitted signal, which are difficult to clone or forge and therefore serve as device identifiers~\cite{peng2019design,zhang2025physical}.
+RFFI is particularly attractive for Internet of Things (IoT) systems, where resource-constrained devices cannot afford conventional cryptographic authentication~\cite{zhang2025physical}.
 
-Practical RFFI deployment, however, imposes stringent real-time requirements. RFFI verification operates on a per-packet basis: every received packet must be authenticated before delivery to upper layers, so that illegitimate packets can be rejected immediately. The inference latency therefore directly adds to packet processing delay, and slow verification can stall the reception pipeline. Modern RFFI systems require sub-millisecond inference on edge platforms to support real-time per-packet authentication. This requirement conflicts with the high-capacity architectures behind accurate RFFI, such as deep convolutional and residual networks~\cite{7780459}. These over-parameterized models exceed the latency and energy budgets of edge hardware. Structural model compression is therefore essential for practical RFFI deployment.
-
-\textbf{Limitations of existing lightweight RFFI approaches.}
-\red{[TODO: This paragraph will review existing lightweight RFFI methods and their limitations. Please add 3--5 references covering: (1) manually designed compact RFFI architectures, (2) uniform pruning methods applied to RFFI, and (3) other compression techniques for RFFI. The paragraph should emphasize that existing approaches rely on manual design or uniform compression ratios that do not account for layer-wise heterogeneity in learned RF representations.]}
-
-General-purpose lightweight neural network design has been extensively studied. One approach redesigns the architecture for efficiency: MobileNets~\cite{howard2017mobilenetsefficientconvolutionalneural}, for example, replace standard convolutions with depthwise separable convolutions and apply a uniform width multiplier. Another approach compresses trained networks through channel pruning based on hand-picked importance criteria. While these paradigms have been applied to RFFI, they share a fundamental limitation: compression ratios are dictated by manual intuition rather than the intrinsic characteristics of learned representations. A uniform width multiplier assumes homogeneous redundancy across all layers, which does not hold in RFFI networks. Physical-layer signal features exhibit strong layer-wise heterogeneity: shallow layers encode low-level time-frequency textures while deep layers capture abstract device-specific patterns. Uniform compression therefore damages information-critical layers while leaving redundant layers unnecessarily wide.
+Recent RFFI research has largely focused on exploring neural network architectures to raise identification accuracy.
+Convolutional neural networks (CNNs) have been applied to raw in-phase and quadrature (I/Q) samples~\cite{merchant2018deep,sankhe2020no} and to engineered representations such as multi-scale transients~\cite{yu2019robust} and differential constellation traces~\cite{peng2020deep}.
+Residual networks on spectrograms have been used to extract LoRa fingerprints that remain stable under channel variation~\cite{9715147}.
+Sequential and attention models, including long short-term memory (LSTM) networks, gated recurrent units, and Transformers, have been introduced to process packets of variable length~\cite{shen2023toward}.
+Open-set classifiers and multi-channel CNNs have been developed for unknown-device detection and protocol-specific identification~\cite{hanna2021open,yin2024multichannel}, while adversarial training has been used to learn receiver-independent features~\cite{shen2024towards}.
+These studies evaluate success primarily by identification accuracy under channel, noise, and receiver mismatch.
+Computational complexity is seldom treated as a first-order design goal, even though a few works have pruned RFFI networks for edge hardware~\cite{jian2022radio}.
+This accuracy-centric view is at odds with the real-time nature of wireless systems.
+RFFI verification operates on a per-packet basis: every received packet must be authenticated before delivery to upper layers, so that illegitimate packets can be rejected immediately.
+Inference latency therefore adds directly to packet processing delay, and a slow verifier can stall the reception pipeline.
+High-capacity residual and dense networks exceed the latency and energy budgets of typical edge receivers, so complexity is as central as accuracy for practical RFFI deployment.
 
 \textbf{Our approach.}
-A key observation underpins this work: a fully trained high-capacity network inherently encodes its own architectural redundancy. The energy spectrum from principal component analysis (PCA) on feature maps reveals the dimension needed to keep the dominant variance at each layer. We propose an automated lightweight RFFI framework that exploits PCA in two complementary roles. First, PCA-driven channel pruning automatically determines per-layer compression ratios from feature variance. Second, PCA-aligned distillation projects the teacher's high-dimensional embeddings into the student's low-dimensional space. An optional iterative mode repeats this pipeline under a configurable accuracy floor.
+A key observation underpins this work: a fully trained high-capacity network already encodes its own architectural redundancy.
+We propose an automated lightweight RFFI framework that exploits principal component analysis (PCA) in two complementary roles.
+PCA-driven channel pruning derives each layer's effective dimension from feature-map variance, so the compression ratio is no longer a hand-picked hyperparameter.
+PCA-aligned distillation projects the teacher's embeddings into the student's lower-dimensional space, which enables knowledge transfer despite the dimensional mismatch.
+An optional iterative mode repeats this pipeline under a configurable accuracy bound.
 
-We evaluate the framework on four diverse architectures with a real-world LoRa dataset and demonstrate millisecond-level end-to-end inference on NVIDIA Jetson edge platforms. The main contributions are:
+We evaluate the framework on four architectures with a real-world LoRa dataset and demonstrate millisecond-level end-to-end inference on NVIDIA Jetson edge platforms.
+The main contributions are:
 \begin{itemize}
     \item We propose a PCA-driven channel pruning method that analyzes the feature variance of each convolutional layer to automatically derive its effective dimension, eliminating hand-picked compression ratios. It achieves up to 834$\times$ parameter compression across four architectures with little accuracy loss, and students extract features in 0.69~ms on a Jetson Nano.
 
@@ -77,7 +90,7 @@ We evaluate the framework on four diverse architectures with a real-world LoRa d
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=0.95\linewidth]{figures/Overview of an RF Fingerprinting System.pdf}
+    \includegraphics[width=\linewidth]{figures/Overview of an RF Fingerprinting System.pdf}
     \caption{System architecture of the proposed automated lightweight RFFI framework. The compression pipeline employs PCA in two complementary roles: PCA-driven channel pruning determines the student architecture, and PCA-aligned distillation trains the student parameters (Section~\ref{sec:design}).}
     \label{fig:system_arch}
 \end{figure}
