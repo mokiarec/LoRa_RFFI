@@ -11,9 +11,6 @@
 
 \DeclareMathOperator*{\argmax}{argmax}
 \DeclareMathOperator*{\argmin}{argmin}
-\newcommand{\etal}{\textit{et al.}}
-\newcommand{\red}[1]{\textcolor{red}{#1}}
-\newcommand{\blue}[1]{\textcolor{blue}{#1}}
 
 \begin{document}
 
@@ -74,11 +71,11 @@ An optional iterative mode repeats this pipeline under a configurable accuracy b
 We evaluate the framework on four architectures with a real-world LoRa dataset and demonstrate millisecond-level end-to-end inference on NVIDIA Jetson edge platforms.
 The main contributions are:
 \begin{itemize}
-    \item We propose a PCA-driven channel pruning method that analyzes the feature variance of each convolutional layer to automatically derive its effective dimension, eliminating hand-picked compression ratios. It achieves up to $834\times$ parameter compression across four architectures with little accuracy loss, and students extract features in $0.69$~ms on a Jetson Nano.
+    \item We propose a PCA-driven channel pruning method that analyzes the feature variance of each convolutional layer to automatically derive its effective dimension, eliminating hand-picked compression ratios. It achieves up to $834\times$ parameter compression across four architectures with little accuracy loss, and students extract features in as little as $0.69$~ms on a Jetson Nano.
 
     \item We design a PCA-aligned network distillation paradigm that projects the teacher's high-dimensional embedding space into the student's low-dimensional space, enabling knowledge transfer despite dimensional mismatch. The $834\times$-compressed DenseNet student outperforms an undertrained teacher on all six test scenarios.
 
-    \item We develop an iterative compression mode that progressively applies PCA-driven pruning and aligned distillation under a configurable accuracy bound. It reaches $67.2\times$ cumulative compression on ResNet after two rounds, with accuracy improved after the first round.
+    \item We develop an iterative compression mode that progressively applies PCA-driven pruning and aligned distillation under a configurable accuracy bound. It reaches $67.22\times$ cumulative compression on ResNet18 after two rounds, with accuracy maintained or improved after the first round.
 \end{itemize}
 
 \section{System Overview}
@@ -169,13 +166,13 @@ Auxiliary convolutions, such as shortcut projections, downsampling layers, and d
 The measured effective dimensions are then turned into an architecture.
 The channel count of each main-branch convolutional layer is set to its own $d_{\text{eff}}$, while the macro-topology of the teacher, such as residual connections or dense blocks, is left unchanged, so that the student remains a narrower version of a known-good design rather than a new one.
 Auxiliary convolutions inherit their channel counts from the main-branch layers they connect to, which keeps the network structurally consistent.
-A minimum channel count $c_{\min}$ prevents a layer from collapsing to a degenerate width, and the student embedding dimension is set to $d_s \ll d_t$.
+A minimum channel count $c_{\min}$ prevents a layer from collapsing to a degenerate width, and the student embedding dimension is set to $d_s < d_t$.
 The student is randomly initialized and inherits no weights from the teacher, so all of its parameters are learned in the distillation stage that follows.
 
 \subsubsection{PCA-Aligned Network Distillation}
 
 This stage takes the student architecture from Step~2 and trains its weights under the supervision of the frozen teacher.
-The obstacle is that the two embeddings live in different dimensions: the teacher embedding is in $\mathbb{R}^{d_t}$ and the student embedding is in $\mathbb{R}^{d_s}$ with $d_s \ll d_t$, so the two outputs cannot be compared directly.
+The obstacle is that the two embeddings live in different dimensions: the teacher embedding is in $\mathbb{R}^{d_t}$ and the student embedding is in $\mathbb{R}^{d_s}$ with $d_s < d_t$, so the two outputs cannot be compared directly.
 Instead of adding a trainable adapter layer, we bring the teacher down to the student dimension with a PCA projection, which is obtained analytically from the teacher embeddings themselves and keeps the directions along which the teacher separates devices most strongly.
 
 Let $f_t(\cdot;\theta_t)$ denote the frozen teacher.
@@ -234,7 +231,8 @@ Because every round compresses a network that is already compressed, the cumulat
 \label{subsubsec:dataset_description}
 
 Our experiments use a large-scale LoRa RFFI dataset collected from 60 commercial devices, i.e., Pycom LoPy4/FiPy modules, and a USRP N210 SDR receiver~\cite{9715147}.
-The training set consists of 800 packets per device from 40 devices, collected in a controlled, stationary line-of-sight (LOS) residential environment.
+The training set consists of 800 packets per device from 30 devices, collected in a controlled, stationary line-of-sight (LOS) residential environment.
+This training data is further split into a training subset and a validation subset with a ratio of 9:1 for model selection and early stopping.
 The test set covers six sub-scenarios ranging from ideal to challenging channel conditions: static LOS at three locations (A, B, C), and non-line-of-sight (NLOS) at three obstructed locations (D, E, F).
 All signals are preprocessed via STFT to produce single-channel spectrograms, consistent with Section~\ref{subsec:teacher}.
 
@@ -248,7 +246,7 @@ To validate edge deployment, the trained student models are deployed on an NVIDI
 \label{subsubsec:hyperparameters}
 
 All networks are implemented in PyTorch 2.0 and trained with Adam, a learning rate of $10^{-3}$, and a batch size of 16--32.
-The teacher uses the triplet margin $m = 0.1$, and the best validation checkpoint is retained.
+The teacher uses the triplet margin $m = 1.0$, and the best validation checkpoint is retained.
 Compression uses $T = 3.0$, $\tau = 0.95$, $c_{\min} = 2$, and $d_s = 8$.
 Student training applies a 50-epoch warmup, then early stopping with patience 10.
 
@@ -277,7 +275,7 @@ Student training applies a 50-epoch warmup, then early stopping with patience 10
 Model & & (KB) & (K) & (M) & Feat. & Total & Feat. & Total \\
 \midrule
 \multirow{2}{*}{ResNet18} & T & 802.32 & 203.26 & 268.12 & 4.45 & 33.36 & 94.3 & 166.0 \\
- & S & 43.28 & 8.50 & 13.04 & 1.19 & 1.60 & 19.9 & 63.1 \\
+ & S & 53.84 & 13.78 & 21.44 & 1.19 & 1.60 & 19.9 & 63.1 \\
 \addlinespace
 \multirow{2}{*}{SCSKNet} & T & 837.76 & 210.67 & 268.38 & 4.77 & 24.66 & 97.1 & 165.3 \\
  & S & 33.51 & 4.95 & 7.25 & 0.89 & 1.31 & 16.7 & 58.6 \\
@@ -300,15 +298,15 @@ Model & & (KB) & (K) & (M) & Feat. & Total & Feat. & Total \\
 \label{subsubsec:cross_arch}
 
 We first verify that the PCA-driven pipeline is not tailored to one specific network.
-We apply one compression round to four architectures with distinct design philosophies, namely ResNet18, SCSKNet, ShuffleNet, and DenseNet, and compare each student with its teacher.
+We apply one compression round to four architectures with distinct design philosophies, namely ResNet18, Selective Channel–Spatial Kernel Network (SCSKNet), ShuffleNet, and DenseNet, and compare each student with its teacher.
 Identification accuracy is measured by KNN ($k = 5$) on $\ell_2$-normalized embeddings, using a 50/50 enrollment/test split stratified by device label.
 Table~\ref{tab:final_merged_complete} reports the complexity of the four teacher--student pairs, and Fig.~\ref{fig:pruning_distillation_comparison} compares their identification accuracy across the six test sub-scenarios.
 
 ResNet18 represents the canonical case where the teacher is well-trained.
-The student reduces the parameter count from 203.26K to 8.50K, i.e., $23.9\times$ compression, and FLOPs from 268.12M to 13.04M, i.e., a $20.6\times$ reduction, while remaining competitive across all scenarios.
+The student reduces the parameter count from 203.26K to 13.78K, i.e., $14.75\times$ compression, and FLOPs from 268.12M to 21.44M, i.e., a $12.51\times$ reduction, while remaining competitive across all scenarios.
 On LOS-A and LOS-C in Fig.~\ref{fig:pruning_distillation_comparison}(a), the student achieves 99.8\% and 96.4\%, closely tracking the teacher's 99.7\% and 99.8\%.
 The student surpasses the teacher on NLOS-E (84.6\% vs.\ 62.5\%) and on LOS-B (99.4\% vs.\ 98.5\%), suggesting that the PCA-derived compact architecture is less prone to overfitting under channel degradation.
-The student occupies only 43.28~KB of storage, which suits memory-constrained edge devices.
+The student occupies only 53.84~KB of storage, which suits memory-constrained edge devices.
 
 The remaining three architectures reveal a recurring phenomenon: although the distilled students operate at a fraction of the parameter budget, they remain competitive with their teachers, and two of the three students outperform their teachers on a majority of the test scenarios.
 The SCSKNet student reduces parameters by $42.6\times$ (210.67K to 4.95K) and stays within 3 percentage points of the teacher on 5 of the 6 scenarios, matching it on NLOS-D (97.2\%) and NLOS-F (99.9\%).
@@ -342,9 +340,9 @@ This subsection evaluates how far the iterative mode of Section~\ref{subsec:iter
 We apply the iterative procedure to ResNet18 with an accuracy tolerance of $\delta = 20\%$, and report KNN accuracy with the same enrollment/test protocol as in Section~\ref{subsec:cross_family}.
 Fig.~\ref{fig:iterative} visualizes the embedding space after each round, and Table~\ref{tab:iterative_trace} traces the per-round channel configuration, parameter count, and accuracy on a LOS and an NLOS scenario.
 
-Round~1 reduces the parameters from 203.3K to 13.8K ($14.7\times$) while yielding even better generalization, with accuracy rising to 84.6\% on NLOS-E.
-Round~2 further compresses the network to 3.0K parameters ($67.2\times$ cumulative) and maintains acceptable performance, e.g., 97.05\% on NLOS-D, within the tolerance $\delta$.
-Round~3 reaches a near-minimal configuration with only 1.4K parameters and still sustains 92.70\% accuracy on NLOS-D, before the structural capacity collapses in Round~4 and the loop terminates.
+Round~1 reduces the parameters from 203.26K to 13.78K ($14.75\times$) while yielding even better generalization, with accuracy rising to 84.55\% on NLOS-E.
+Round~2 further compresses the network to 3.02K parameters ($67.22\times$ cumulative) and maintains acceptable performance, e.g., 97.05\% on NLOS-D, within the tolerance $\delta$.
+Round~3 reaches a near-minimal configuration with only 1.36K parameters and still sustains 92.70\% accuracy on NLOS-D, before the structural capacity collapses in Round~4 and the loop terminates.
 The embedding visualization in Fig.~\ref{fig:iterative} shows that the devices remain well separated through the first rounds and only begin to overlap as the width approaches the minimum channel count.
 These results indicate that iterative compression approaches the channel-level compression limit automatically, with the tolerance $\delta$ as the only user-facing control.
 

@@ -219,7 +219,7 @@ def main():
     cbar.ax.tick_params(labelsize=6, width=0.6, length=2)
     cbar.outline.set_linewidth(0.6)
 
-    fig.savefig(str(OUTPUT))
+    fig.savefig(str(OUTPUT), bbox_inches='tight', pad_inches=0.01)
     print(f"\nSaved: {OUTPUT}")
     plt.close()
 

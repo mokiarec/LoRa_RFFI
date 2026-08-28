@@ -112,8 +112,8 @@ def collect_specific_checkpoints_statistics(exp_numbers=None):
     import json
     
     all_stats = {}
-    checkpoints_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'checkpoints')
-    
+    checkpoints_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                                   'checkpoints')
     if not os.path.exists(checkpoints_dir):
         print(f"Checkpoints目录不存在: {checkpoints_dir}")
         return all_stats
@@ -258,7 +258,7 @@ def save_statistics_to_csv(all_stats, filename=None):
 if __name__ == "__main__":
     # 指定要分析的EXP实验序号，例如：[1, 5, 10]
     # 设置为 None 则分析所有实验
-    EXP_NUMBERS = [2, 17, 20, 21, 22, 23, 24, 25]  # 修改这里来指定要分析的实验序号
+    EXP_NUMBERS = [31]  # 修改这里来指定要分析的实验序号
     
     print(f"开始分析实验: {EXP_NUMBERS if EXP_NUMBERS else '所有实验'}")
     
