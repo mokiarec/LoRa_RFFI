@@ -16,23 +16,21 @@
 
 \title{Lightweight RF Fingerprinting via PCA-Driven Channel Pruning and Distillation}
 
-\author{Keyi~Mo, Hailang Jia, Xiaoyu Zhao and Guanxiong~Shen%
-\thanks{K. Mo, H. Jia, X. Zhao and G. Shen are with the School of Cyber Science and Engineering, Southeast University, Nanjing 210096, China.}%
-\thanks{Corresponding author: G. Shen (e-mail: gxshen@seu.edu.cn).}%
+\author{Keyi~Mo, Hailang~Jia, Xiaoyu~Zhao and Guanxiong~Shen%
+\thanks{K. Mo, H. Jia, X. Zhao and G. Shen are with the School of Cyber Science and Engineering, Southeast University, Nanjing 210096, China (e-mail: hylan\_j@163.com; xy-zhao@seu.edu.cn; gxshen@seu.edu.cn).}%
+\thanks{Corresponding author: G. Shen.}%
 }
 
 \maketitle
 
 
 \begin{abstract}
-Radio frequency fingerprint identification (RFFI) is a physical-layer authentication technique that identifies wireless devices through hardware-inherent imperfections.
-Deep learning RFFI systems achieve high accuracy, but their over-parameterized models cannot support real-time per-packet inference on edge hardware.
-Existing lightweight methods rely on hand-crafted architectures or uniform pruning, whose compression ratios follow human intuition rather than the redundancy already encoded in a trained network.
-This letter presents an automated pipeline that exploits principal component analysis (PCA) in two complementary roles.
-PCA-driven channel pruning derives each layer's effective dimension from feature-map variance, eliminating hand-picked ratios.
-PCA-aligned distillation projects teacher embeddings into the student's lower-dimensional space, enabling knowledge transfer despite dimensional mismatch.
-An optional iterative mode repeats this pipeline under a configurable accuracy bound.
-Experiments on four architectures with a real-world LoRa dataset demonstrate that a distilled student can outperform an undertrained teacher, with up to $834\times$ parameter compression and millisecond-level inference on NVIDIA Jetson platforms.
+Radio frequency fingerprint identification (RFFI) authenticates wireless devices from hardware-induced signal distortions.
+Deep models are accurate but too large for real-time per-packet inference on edge hardware.
+Existing methods rely on hand-crafted architectures or uniform pruning rather than the redundancy of a trained network.
+This letter applies principal component analysis (PCA) to prune channels from feature-map variance and to align teacher-student embeddings for distillation.
+An optional iterative mode repeats the pipeline under an accuracy bound.
+On four architectures and a LoRa dataset, a distilled student can outperform an undertrained teacher, with up to $834\times$ compression and millisecond inference on Jetson platforms.
 \end{abstract}
 
 
@@ -47,7 +45,7 @@ Physical layer security, radio frequency fingerprinting, model compression, know
 \IEEEPARstart{R}{adio} frequency fingerprint identification (RFFI) is a physical-layer authentication technique that identifies wireless devices through their hardware-inherent imperfections.
 Analog components in the transmitter chain, such as oscillators, mixers, and power amplifiers, inevitably deviate from their nominal specifications during manufacturing~\cite{polak2011identifying,zhang2021radio}.
 These deviations imprint unique distortions on the emitted signal, which are difficult to clone or forge and therefore serve as device identifiers~\cite{peng2019design,zhang2025physical}.
-RFFI is particularly attractive for Internet of Things (IoT) systems, where resource-constrained devices cannot afford conventional cryptographic authentication~\cite{zhang2025physical}.
+RFFI is particularly attractive for Internet of Things (IoT) systems, where resource-constrained devices cannot afford conventional cryptographic authentication and key management protocols~\cite{zhang2025physical}.
 
 Recent RFFI research has largely focused on exploring neural network architectures to raise identification accuracy.
 Convolutional neural networks (CNNs) have been applied to raw in-phase and quadrature (I/Q) samples~\cite{merchant2018deep,sankhe2020no} and to engineered representations such as multi-scale transients~\cite{yu2019robust} and differential constellation traces~\cite{peng2020deep}.
@@ -67,7 +65,6 @@ We propose an automated lightweight RFFI framework that exploits principal compo
 PCA-driven channel pruning derives each layer's effective dimension from feature-map variance, so the compression ratio is no longer a hand-picked hyperparameter.
 PCA-aligned distillation projects the teacher's embeddings into the student's lower-dimensional space, which enables knowledge transfer despite the dimensional mismatch.
 An optional iterative mode repeats this pipeline under a configurable accuracy bound.
-
 We evaluate the framework on four architectures with a real-world LoRa dataset and demonstrate millisecond-level end-to-end inference on NVIDIA Jetson edge platforms.
 The main contributions are:
 \begin{itemize}
@@ -75,7 +72,7 @@ The main contributions are:
 
     \item We design a PCA-aligned network distillation paradigm that projects the teacher's high-dimensional embedding space into the student's low-dimensional space, enabling knowledge transfer despite dimensional mismatch. The $834\times$-compressed DenseNet student outperforms an undertrained teacher on all six test scenarios.
 
-    \item We develop an iterative compression mode that progressively applies PCA-driven pruning and aligned distillation under a configurable accuracy bound. It reaches $67.22\times$ cumulative compression on ResNet18 after two rounds, with accuracy maintained or improved after the first round.
+    \item We develop an iterative compression mode that progressively applies PCA-driven pruning and aligned distillation under a configurable accuracy bound. It reaches $67.22\times$ cumulative compression on ResNet18 after two rounds.
 \end{itemize}
 
 \section{System Overview}
@@ -343,7 +340,7 @@ Fig.~\ref{fig:iterative} visualizes the embedding space after each round, and Ta
 Round~1 reduces the parameters from 203.26K to 13.78K ($14.75\times$) while yielding even better generalization, with accuracy rising to 84.55\% on NLOS-E.
 Round~2 further compresses the network to 3.02K parameters ($67.22\times$ cumulative) and maintains acceptable performance, e.g., 97.05\% on NLOS-D, within the tolerance $\delta$.
 Round~3 reaches a near-minimal configuration with only 1.36K parameters and still sustains 92.70\% accuracy on NLOS-D, before the structural capacity collapses in Round~4 and the loop terminates.
-The embedding visualization in Fig.~\ref{fig:iterative} shows that the devices remain well separated through the first rounds and only begin to overlap as the width approaches the minimum channel count.
+The embedding visualization in Fig.~\ref{fig:iterative} shows that the devices remain well separated through the first two rounds, with cluster geometry close to that of the teacher, and only begin to overlap as the width approaches the minimum channel count.
 These results indicate that iterative compression approaches the channel-level compression limit automatically, with the tolerance $\delta$ as the only user-facing control.
 
 
@@ -382,6 +379,7 @@ We measure the inference latency of every teacher and student network on both th
 
 On the Jetson Nano, the ResNet18 teacher requires 4.45~ms for feature extraction and 33.36~ms end-to-end, i.e., about 30 packets per second, which cannot support real-time per-packet authentication.
 In contrast, all student backbones complete feature extraction in under 1.2~ms, and their end-to-end latency ranges from 1.01~ms for DenseNet to 1.60~ms for ResNet18, corresponding to 625--990 packets per second on the same constrained hardware.
+The DenseNet student is the most compact in this sense: 0.69~ms for feature extraction, 1.01~ms end-to-end, and 144.51~KB of storage.
 This throughput exceeds typical LoRa packet rates by a wide margin.
 On the RTX 4090, student feature extraction takes 16.7--49.7~$\mu$s, and end-to-end throughput reaches 10,800--17,000 packets per second across all student networks.
 These results confirm that the proposed pipeline produces models that are not only parameter- and storage-efficient but also fast enough for real-time RFFI deployment on heterogeneous hardware.
@@ -392,8 +390,9 @@ These results confirm that the proposed pipeline produces models that are not on
 This letter presented an automated pipeline for lightweight RFFI that combines PCA-driven channel pruning and PCA-aligned distillation.
 Per-layer channel budgets are taken from the feature-map variance of a trained network, so compression ratios need not be chosen by hand.
 PCA-aligned distillation trains the student in a shared embedding space, and a distilled student can outperform an undertrained teacher.
-An iterative mode repeats the pipeline under an accuracy bound.
-On four architectures and a real-world LoRa dataset, the pipeline reaches up to $834\times$ compression and more than 600 packets per second on a Jetson Nano, which is sufficient for real-time per-packet authentication on edge receivers.
+An iterative mode repeats the pipeline under an accuracy bound and reaches $67.22\times$ cumulative compression on ResNet18 after two rounds.
+On four architectures and a real-world LoRa dataset, the pipeline reaches up to $834\times$ compression.
+End-to-end authentication on a Jetson Nano takes 1.01--1.60~ms, i.e., more than 600 packets per second, which is sufficient for real-time per-packet authentication on edge receivers.
 
 
 \bibliographystyle{IEEEtran}
